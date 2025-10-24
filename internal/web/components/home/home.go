@@ -1,9 +1,11 @@
 package home
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/a-h/templ"
 	"github.com/starfederation/datastar-go/datastar"
@@ -55,15 +57,7 @@ func proofread(w http.ResponseWriter, r *http.Request) {
 	}
 	sse := datastar.NewSSE(w, r)
 	slog.Info(fmt.Sprintf("Received %v, %v, %v, %v", store.Endpoint, store.Model, store.Key, store.Prompt))
-	_ = sse.ExecuteScript(fmt.Sprintf("console.log('Received %v, %v, %v, %v')", store.Endpoint, store.Model, store.Key, store.Prompt))
 
-	_ = sse.PatchSignals([]byte(`{prompt_output: 'This is the prompt output from the server'}`))
-	return
-
-	// if err != nil {
-	// 	http.Error(w, err.Error(), http.StatusBadRequest)
-	// 	return
-	// }
 	llm, err := openai.New(
 		openai.WithModel(store.Model),
 		openai.WithBaseURL(store.Endpoint),
@@ -73,9 +67,7 @@ func proofread(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-
-	return
-
+	output := ""
 	resp, err := llm.GenerateContent(
 		r.Context(),
 		[]llms.MessageContent{
@@ -95,11 +87,26 @@ func proofread(w http.ResponseWriter, r *http.Request) {
 					},
 				},
 			},
-		})
+		},
+		llms.WithStreamingFunc(func(ctx context.Context, chunk []byte) error {
+			content := string(chunk)
+			singleline := strings.ReplaceAll(content, "\n", "")
+			if singleline == "" {
+				return nil
+			}
+			output = output + singleline
+			outputsignal := fmt.Sprintf(`{prompt_output: "%v"}`, output)
+			slog.Info("Outputsignal", "sig", singleline)
+			return sse.PatchSignals([]byte(outputsignal))
+		}))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-
-	fmt.Println(resp.Choices[0].Content)
+	singleline := strings.ReplaceAll(resp.Choices[0].Content, "\n", "\\")
+	outputsignal := fmt.Sprintf(`{prompt_output: "%v"}`, singleline)
+	err = sse.PatchSignals([]byte(outputsignal))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
 }

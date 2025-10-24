@@ -3,38 +3,39 @@ package home
 import "datastart/internal/web/components"
 
 templ ConfigField(signal, inputtype, label string) {
-	<input data-bind={ signal } type={ inputtype } placeholder={ label } data-attr:disabled="$locked"/>
+<input data-bind={ signal } type={ inputtype } placeholder={ label } data-attr:disabled="$locked" />
 }
 
 templ ConfigMenu() {
-	<details name="settings">
-		<summary>Configuration Settings </summary>
-		<fieldset data-signals="{model: '', endpoint: '', key: '', locked: false }">
-			@ConfigField("model", "text", "Model ID")
-			@ConfigField("endpoint", "url", "Endpoint")
-			@ConfigField("key", "text", "API Key")
-			<input data-bind:locked type="checkbox" role="switch"/>
-		</fieldset>
-	</details>
+<details name="settings">
+    <summary>Configuration Settings </summary>
+    <fieldset data-signals="{model: '', endpoint: '', key: '', locked: false }">
+        @ConfigField("model", "text", "Model ID")
+        @ConfigField("endpoint", "url", "Endpoint")
+        @ConfigField("key", "text", "API Key")
+        <input data-bind:locked type="checkbox" role="switch" />
+    </fieldset>
+</details>
 }
 
 templ Home() {
-	@components.Base() {
-		<main class="container">
-			<h1>Welcome to Tutoring</h1>
-			// Controls
-			<section>
-				@ConfigMenu()
-				<div class="grid">
-					<div role="group">
-						<textarea data-bind:prompt></textarea>
-						<button data:indicator="fetching" data-on:click="@post('/proofread')">Go</button>
-					</div>
-					<div>
-						<textarea data-bind:prompt_output readonly>Please send a message...</textarea>
-					</div>
-				</div>
-			</section>
-		</main>
-	}
+@components.Base() {
+<main class="container">
+    <h1>Welcome to Tutoring</h1>
+    // Controls
+    <section>
+        @ConfigMenu()
+        <div class="grid">
+            <div role="group">
+                <textarea data-bind:prompt></textarea>
+                <button data-indicator:fetching data-on:click="@post('/proofread')"
+                    data-attr:disabled="$fetching">Go</button>
+            </div>
+            <div>
+                <textarea data-bind:prompt_output readonly>Please send a message...</textarea>
+            </div>
+        </div>
+    </section>
+</main>
+}
 }
