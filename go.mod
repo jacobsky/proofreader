@@ -7,6 +7,7 @@ require (
 	github.com/joho/godotenv v1.5.1
 	github.com/starfederation/datastar-go v1.0.3
 	github.com/tmc/langchaingo v0.1.14
+	github.com/yuin/goldmark v1.7.13
 )
 
 require (

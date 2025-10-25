@@ -1,8 +1,10 @@
 package home
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -11,6 +13,7 @@ import (
 	"github.com/starfederation/datastar-go/datastar"
 	"github.com/tmc/langchaingo/llms"
 	"github.com/tmc/langchaingo/llms/openai"
+	"github.com/yuin/goldmark"
 )
 
 func AddRoutes(mux *http.ServeMux) {
@@ -67,6 +70,18 @@ func proofread(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	err = sse.PatchElementTempl(OutputSection(WaitingForInput()))
+
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	err = sse.PatchSignals([]byte(`{ prompt_output: "Waiting for input..."}`))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	output := ""
 	resp, err := llm.GenerateContent(
 		r.Context(),
@@ -103,10 +118,22 @@ func proofread(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	singleline := strings.ReplaceAll(resp.Choices[0].Content, "\n", "\\")
-	outputsignal := fmt.Sprintf(`{prompt_output: "%v"}`, singleline)
-	err = sse.PatchSignals([]byte(outputsignal))
+
+	var buf bytes.Buffer
+	if err := goldmark.Convert([]byte(resp.Choices[0].Content), &buf); err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		slog.Error("Markdown parsing error", "error", err)
+	}
+	htmlcontent := unsafeRenderMarkdown(buf.String())
+	err = sse.PatchElementTempl(OutputSection(htmlcontent))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
+}
+
+func unsafeRenderMarkdown(html string) templ.Component {
+	return templ.ComponentFunc(func(ctx context.Context, w io.Writer) (err error) {
+		_, err = io.WriteString(w, html)
+		return
+	})
 }
