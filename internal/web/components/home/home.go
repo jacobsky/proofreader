@@ -14,6 +14,11 @@ import (
 	"github.com/tmc/langchaingo/llms"
 	"github.com/tmc/langchaingo/llms/openai"
 	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/extension"
+)
+
+var md = goldmark.New(
+	goldmark.WithExtensions(extension.GFM),
 )
 
 func AddRoutes(mux *http.ServeMux) {
@@ -120,7 +125,7 @@ func proofread(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var buf bytes.Buffer
-	if err := goldmark.Convert([]byte(resp.Choices[0].Content), &buf); err != nil {
+	if err := md.Convert([]byte(resp.Choices[0].Content), &buf); err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		slog.Error("Markdown parsing error", "error", err)
 	}

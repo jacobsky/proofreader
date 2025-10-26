@@ -3,17 +3,19 @@ package home
 import "datastart/internal/web/components"
 
 templ ConfigField(signal, inputtype, label string) {
-	<input data-bind={ signal } type={ inputtype } placeholder={ label } data-attr:disabled="$locked"/>
+	<input data-bind={ signal } type={ inputtype } autocomplete="on" placeholder={ label } data-attr:disabled="$locked"/>
 }
 
 templ ConfigMenu() {
 	<details name="settings">
 		<summary>Configuration Settings </summary>
 		<fieldset data-signals="{model: '', endpoint: '', key: '', locked: false }">
-			@ConfigField("model", "text", "Model ID")
-			@ConfigField("endpoint", "url", "Endpoint")
-			@ConfigField("key", "text", "API Key")
-			<input data-bind:locked type="checkbox" role="switch"/>
+			<form>
+				@ConfigField("model", "text", "Model ID")
+				@ConfigField("endpoint", "url", "Endpoint")
+				@ConfigField("key", "text", "API Key")
+				<input data-bind:locked type="checkbox" role="switch"/>
+			</form>
 		</fieldset>
 	</details>
 }
@@ -35,18 +37,16 @@ templ Home() {
 			// Controls
 			<section>
 				@ConfigMenu()
-				<div class="grid">
-					<div role="group">
-						<textarea data-bind:prompt></textarea>
-						<button
-							data-indicator:fetching
-							data-on:click="@post('/proofread')"
-							data-attr:disabled="$fetching"
-						>Go</button>
-					</div>
-					<div>
-						@OutputSection(WaitingForInput())
-					</div>
+				<div role="group">
+					<textarea data-bind:prompt></textarea>
+					<button
+						data-indicator:fetching
+						data-on:click="@post('/proofread')"
+						data-attr:disabled="$fetching"
+					>Go</button>
+				</div>
+				<div>
+					@OutputSection(WaitingForInput())
 				</div>
 			</section>
 		</main>
