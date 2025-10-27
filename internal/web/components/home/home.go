@@ -17,9 +17,7 @@ import (
 	"github.com/yuin/goldmark/extension"
 )
 
-var md = goldmark.New(
-	goldmark.WithExtensions(extension.GFM),
-)
+var md = goldmark.New(goldmark.WithExtensions(extension.GFM))
 
 func AddRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /proofread", proofread)
@@ -54,6 +52,7 @@ type AIAPISignal struct {
 	Model    string `json:"model"`
 	Endpoint string `json:"endpoint"`
 	Key      string `json:"key"`
+	Locked   bool   `json:"locked"`
 	Prompt   string `json:"prompt"`
 }
 
@@ -64,6 +63,8 @@ func proofread(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sse := datastar.NewSSE(w, r)
+	// sse.PatchSignals([]byte(`{fetching: true}`))
+
 	slog.Info(fmt.Sprintf("Received %v, %v, %v, %v", store.Endpoint, store.Model, store.Key, store.Prompt))
 
 	llm, err := openai.New(
@@ -88,8 +89,7 @@ func proofread(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	output := ""
-	resp, err := llm.GenerateContent(
-		r.Context(),
+	messages :=
 		[]llms.MessageContent{
 			{
 				Role: llms.ChatMessageTypeSystem,
@@ -107,7 +107,11 @@ func proofread(w http.ResponseWriter, r *http.Request) {
 					},
 				},
 			},
-		},
+		}
+	resp, err := llm.GenerateContent(
+		r.Context(),
+		messages,
+		llms.WithStreamThinking(true),
 		llms.WithStreamingFunc(func(ctx context.Context, chunk []byte) error {
 			content := string(chunk)
 			singleline := strings.ReplaceAll(content, "\n", "")
@@ -116,7 +120,6 @@ func proofread(w http.ResponseWriter, r *http.Request) {
 			}
 			output = output + singleline
 			outputsignal := fmt.Sprintf(`{prompt_output: "%v"}`, output)
-			slog.Info("Outputsignal", "sig", singleline)
 			return sse.PatchSignals([]byte(outputsignal))
 		}))
 	if err != nil {
@@ -130,6 +133,7 @@ func proofread(w http.ResponseWriter, r *http.Request) {
 		slog.Error("Markdown parsing error", "error", err)
 	}
 	htmlcontent := unsafeRenderMarkdown(buf.String())
+	// sse.PatchSignals([]byte(`{fetching: false}`))
 	err = sse.PatchElementTempl(OutputSection(htmlcontent))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)

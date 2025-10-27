@@ -3,52 +3,51 @@ package home
 import "datastart/internal/web/components"
 
 templ ConfigField(signal, inputtype, label string) {
-	<input data-bind={ signal } type={ inputtype } autocomplete="on" placeholder={ label } data-attr:disabled="$locked"/>
+<input data-bind={ signal } id={ signal } name={ signal } type={ inputtype } placeholder={ label }
+    data-attr:disabled="$locked" required />
 }
 
 templ ConfigMenu() {
-	<details name="settings">
-		<summary>Configuration Settings </summary>
-		<fieldset data-signals="{model: '', endpoint: '', key: '', locked: false }">
-			<form>
-				@ConfigField("model", "text", "Model ID")
-				@ConfigField("endpoint", "url", "Endpoint")
-				@ConfigField("key", "text", "API Key")
-				<input data-bind:locked type="checkbox" role="switch"/>
-			</form>
-		</fieldset>
-	</details>
+<details data-signals="{model: '', endpoint: '', key: '', locked: false }" name="settings">
+    <summary>Configuration Settings </summary>
+    <form autocomplete="on" data-on:submit="$locked = !$locked">
+        <fieldset>
+            @ConfigField("model", "text", "Model ID")
+            @ConfigField("endpoint", "url", "Endpoint")
+            @ConfigField("key", "text", "API Key")
+            <input type="submit" data-show="$locked" value="Edit" />
+            <input type="submit" data-show="!$locked" data-attr:disabled="$locked" value="Save" />
+        </fieldset>
+    </form>
+</details>
 }
 
 templ WaitingForInput() {
-	<p data-text="$prompt_output">Waiting for input...</p>
+<p data-text="$prompt_output">Waiting for input...</p>
 }
 
 templ OutputSection(html templ.Component) {
-	<article id="promptoutput">
-		@html
-	</article>
+<article id="promptoutput">
+    @html
+</article>
 }
 
 templ Home() {
-	@components.Base() {
-		<main class="container">
-			<h1>Welcome to Tutoring</h1>
-			// Controls
-			<section>
-				@ConfigMenu()
-				<div role="group">
-					<textarea data-bind:prompt></textarea>
-					<button
-						data-indicator:fetching
-						data-on:click="@post('/proofread')"
-						data-attr:disabled="$fetching"
-					>Go</button>
-				</div>
-				<div>
-					@OutputSection(WaitingForInput())
-				</div>
-			</section>
-		</main>
-	}
+@components.Base() {
+<main class="container">
+    <h1>Welcome to Tutoring</h1>
+    // Controls
+    <section data-signals:fetching="false">
+        @ConfigMenu()
+        <div role="group">
+            <textarea data-bind:prompt></textarea>
+            <button data-on:click="@post('/proofread')" data-indicator:fetching data-attr:disabled="$fetching"
+                data-attr:aria-busy="$fetching ? 'true' : 'false'">Check</button>
+        </div>
+        <div>
+            @OutputSection(WaitingForInput())
+        </div>
+    </section>
+</main>
+}
 }
