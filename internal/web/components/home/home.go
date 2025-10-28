@@ -178,6 +178,10 @@ func proofread(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
+	err = sse.PatchElementTempl(HistoryEntry(store.Prompt, htmlcontent), datastar.WithSelectorID("history"), datastar.WithModeAppend())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
 }
 
 func unsafeRenderMarkdown(html string) templ.Component {
