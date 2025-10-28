@@ -3,10 +3,16 @@ package home
 import "datastart/internal/web/components"
 
 templ WaitingForInput() {
-<p data-text="$prompt_output">Waiting for input...</p>
+<p>Waiting for input...</p>
+}
+
+templ ErrorMessage(code int, err error) {
+<header>Status { code } </header>
+<p>{ err.Error() }</p>
 }
 
 templ OutputSection(html templ.Component) {
+<article data-indicator:fetching aria-busy="true" data-show="$fetching"></article>
 <article id="promptoutput">
     @html
 </article>
@@ -14,7 +20,6 @@ templ OutputSection(html templ.Component) {
 
 templ Home() {
 @components.Base() {
-<h1>Welcome to Tutoring</h1>
 // Controls
 <section data-signals:fetching="false">
     <div role="group">
