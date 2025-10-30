@@ -17,7 +17,7 @@ templ ErrorMessage(code int, err error) {
 
 templ OutputSection(html templ.Component) {
 	<article data-indicator:fetching aria-busy="true" data-show="$fetching"></article>
-	<article id="promptoutput">
+	<article id="promptoutput" data-show="!$fetching">
 		@html
 	</article>
 }
@@ -44,10 +44,40 @@ templ Home() {
 		// Controls
 		<section data-signals="{fetching: false, view: 'proofread'}">
 			<div role="group">
-				<button data-on:click="$view = 'history'">History</button>
-				<button data-on:click="$view = 'proofread'">Proofread</button>
-				<button data-on:click="$view = 'suggestion'">Suggestion</button>
-				<button data-on:click="$view = 'dict'">Dictionary</button>
+				<button
+					data-attr:class="$view == 'history' ? 'outline' : 'outline secondary'"
+					class="secondary"
+					data-on:click="$view = 'history'"
+				>History</button>
+				<button
+					data-attr:class="$view == 'proofread' ? 'outline' : 'outline secondary'"
+					class="secondary"
+					data-on:click="$view = 'proofread'"
+				>Proofread</button>
+				<button
+					data-attr:class="$view == 'suggestion' ? 'outline' : 'outline secondary'"
+					class="secondary"
+					data-on:click="$view = 'suggestion'"
+				>Suggestion</button>
+				<button
+					data-attr:class="$view == 'dict' ? 'outline' : 'outline secondary'"
+					class="secondary"
+					data-on:click="$view = 'dict'"
+				>Dictionary</button>
+			</div>
+			<div data-show="$model == '' || $endpoint == '' || $key==''">
+				<h3>Please configure the app settings</h3>
+				<ul>
+					<li data-show="$model == ''">
+						<p>Please set the model name</p>
+					</li>
+					<li data-show="$endpoint == ''">
+						<p>Please set the endpoint </p>
+					</li>
+					<li data-show="$key==''">
+						<p>Please set the api key</p>
+					</li>
+				</ul>
 			</div>
 			<div data-show="$view == 'proofread'">
 				<h3>Proof read your work </h3>
@@ -60,7 +90,7 @@ templ Home() {
 					<button
 						data-on:click="@post('/assist')"
 						data-indicator:fetching
-						data-attr:disabled="$fetching"
+						data-attr:disabled="$fetching || $model == '' || $endpoint == '' || $key==''"
 						data-attr:aria-busy="$fetching ? 'true' : 'false'"
 					>Check</button>
 				</div>
@@ -76,13 +106,17 @@ templ Home() {
 					<button
 						data-on:click="@post('/assist')"
 						data-indicator:fetching
-						data-attr:disabled="$fetching"
+						data-attr:disabled="$fetching || $model == '' || $endpoint == '' || $key==''"
 						data-attr:aria-busy="$fetching ? 'true' : 'false'"
 					>Receive Suggestion</button>
 				</div>
 			</div>
 			<div data-show="$view == 'dict'">
 				<h3>Dictionary Lookup</h3>
+				<p>
+					Easily run a search with jisho.org directly from this panel with any kanji. It will open a window so you can
+					continue working and don't lose your progress
+				</p>
 				<div role="group">
 					<textarea data-bind:lookup></textarea>
 					<a role="button" data-attr:href="'https://www.jisho.org/search/'.concat($lookup)" target="_blank">

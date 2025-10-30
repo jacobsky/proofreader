@@ -4,6 +4,7 @@ This is a prototype using go and the datastar framework that acts as a small web
 
 **NOTE**: No data is stored server side. Only the prompts used.
 
+Prototype is considered feature complete and is usable online by inputting the necessary data in the configuration settings.
 
 ## Getting Started
 
