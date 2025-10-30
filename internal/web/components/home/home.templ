@@ -1,48 +1,102 @@
 package home
 
-import "datastart/internal/web/components"
+import (
+	"datastart/internal/web/components"
+	"math"
+	"strings"
+)
 
 templ WaitingForInput() {
-<p>Waiting for input...</p>
+	<p>Waiting for input...</p>
 }
 
 templ ErrorMessage(code int, err error) {
-<header>Status { code } </header>
-<p>{ err.Error() }</p>
+	<header>Status { code } </header>
+	<p>{ err.Error() }</p>
 }
 
 templ OutputSection(html templ.Component) {
-<article data-indicator:fetching aria-busy="true" data-show="$fetching"></article>
-<article id="promptoutput">
-    @html
-</article>
+	<article data-indicator:fetching aria-busy="true" data-show="$fetching"></article>
+	<article id="promptoutput">
+		@html
+	</article>
 }
 
-templ HistoryEntry(prompt string, output templ.Component) {
-<details>
-    <summary>{ prompt }</summary>
-    <article>
-        @output
-    </article>
-</details>
+templ HistoryEntry(scenario, prompt string, output templ.Component) {
+	<details name="history">
+		{{
+	title := strings.Join([]string{scenario, prompt}, ": ")
+	max_len := int(math.Max(float64(len(title)), 20))
+	truncated_prompt := title[0:max_len]
+		}}
+		<summary>{ truncated_prompt }</summary>
+		<article>
+			<header>{ prompt }</header>
+			<p>
+				@output
+			</p>
+		</article>
+	</details>
 }
 
 templ Home() {
-@components.Base() {
-// Controls
-<section data-signals="{fetching: false, view_history: false}">
-    <button data-on:click="$view_history = !$view_history">History</button>
-    <div role="group" data-show="!$view_history">
-        <textarea data-bind:prompt></textarea>
-        <button data-on:click="@post('/proofread')" data-indicator:fetching data-attr:disabled="$fetching"
-            data-attr:aria-busy="$fetching ? 'true' : 'false'">Check</button>
-    </div>
-    <div data-show="!$view_history">
-        @OutputSection(WaitingForInput())
-    </div>
-    <div id="history" data-show="$view_history">
-        <h2>History</h2>
-    </div>
-</section>
-}
+	@components.Base() {
+		// Controls
+		<section data-signals="{fetching: false, view: 'proofread'}">
+			<div role="group">
+				<button data-on:click="$view = 'history'">History</button>
+				<button data-on:click="$view = 'proofread'">Proofread</button>
+				<button data-on:click="$view = 'suggestion'">Suggestion</button>
+				<button data-on:click="$view = 'dict'">Dictionary</button>
+			</div>
+			<div data-show="$view == 'proofread'">
+				<h3>Proof read your work </h3>
+				<p>
+					Provide some japanese text that you would like to have checked for grammar, word choice, etc. Please note
+					that this is imperfect.
+				</p>
+				<div role="group">
+					<textarea data-bind:prompt></textarea>
+					<button
+						data-on:click="@post('/assist')"
+						data-indicator:fetching
+						data-attr:disabled="$fetching"
+						data-attr:aria-busy="$fetching ? 'true' : 'false'"
+					>Check</button>
+				</div>
+			</div>
+			<div data-show="$view == 'suggestion'">
+				<h3>Suggest a Translation </h3>
+				<p>
+					This tool is used to request a suggestion for a sentence. Best used as a starting point and not to translate
+					a full text.
+				</p>
+				<div role="group">
+					<textarea data-bind:prompt></textarea>
+					<button
+						data-on:click="@post('/assist')"
+						data-indicator:fetching
+						data-attr:disabled="$fetching"
+						data-attr:aria-busy="$fetching ? 'true' : 'false'"
+					>Receive Suggestion</button>
+				</div>
+			</div>
+			<div data-show="$view == 'dict'">
+				<h3>Dictionary Lookup</h3>
+				<div role="group">
+					<textarea data-bind:lookup></textarea>
+					<a role="button" data-attr:href="'https://www.jisho.org/search/'.concat($lookup)" target="_blank">
+						Jisho.org
+						Lookup
+					</a>
+				</div>
+			</div>
+			<div data-show="$view != 'history'">
+				@OutputSection(WaitingForInput())
+			</div>
+			<div id="history" data-show="$view == 'history'">
+				<h2>Prompt History</h2>
+			</div>
+		</section>
+	}
 }

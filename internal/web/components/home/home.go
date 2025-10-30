@@ -17,10 +17,26 @@ import (
 	"github.com/yuin/goldmark/extension"
 )
 
+var proofreaderPrompt = `You are a helpful assistant that assists students in reveiwing and proof reading their prompts.
+	First ensure that all responses to the user are in English.
+	Second, review the Japanese (日本語）sentences provided by the user.
+	Third, breakdown the phrases into individual sentences and then list out the specific mistakes and provide an explanation.
+	If the issue is grammatical, please provide the specific reason the grammar is incorrect.
+	If the issue is vocabulary, please provide a general definition to the mistaken word as well as the word that the student actually wanted.
+	Finally, provide an corrected sentence.
+`
+
+var suggestorPrompt = `You are a helpful assistant that assists language students with translating English sentences to Japanese.
+	First ensure that all responses to the user is in English
+	Second, repond to them by reading their entire question, breaking it down into separate sentences, and then translating them one by one.
+	Third, explain the reason behind each word choice and give a brief summary of the sentence structure.
+	For the output, please ensure that the suggested translations is first, then provide the explanation below.
+	`
+
 var md = goldmark.New(goldmark.WithExtensions(extension.GFM))
 
 func AddRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("POST /proofread", proofread)
+	mux.HandleFunc("POST /assist", assist)
 	mux.Handle("/", newHandler())
 }
 
@@ -39,21 +55,13 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-var systemPrompt = `You are a helpful assistant that assists students in reveiwing and proof reading their prompts.
-	First ensure that all responses to the user are in English.
-	Second, review the Japanese (日本語）sentences provided by the user.
-	Third, breakdown the phrases into individual sentences and then list out the specific mistakes and provide an explanation.
-	If the issue is grammatical, please provide the specific reason the grammar is incorrect.
-	If the issue is vocabulary, please provide a general definition to the mistaken word as well as the word that the student actually wanted.
-	Finally, provide an corrected sentence.
-`
-
 type AIAPISignal struct {
 	Model    string `json:"model"`
 	Endpoint string `json:"endpoint"`
 	Key      string `json:"key"`
 	Locked   bool   `json:"locked"`
 	Prompt   string `json:"prompt"`
+	View     string `json:"view"`
 }
 
 func (signal *AIAPISignal) validate() error {
@@ -89,7 +97,8 @@ func handleDatastarError(sse *datastar.ServerSentEventGenerator, w http.Response
 	}
 }
 
-func proofread(w http.ResponseWriter, r *http.Request) {
+func assist(w http.ResponseWriter, r *http.Request) {
+	// Implement a URI parameter to differentiate the prompt that will be used
 	var store = &AIAPISignal{}
 
 	err := datastar.ReadSignals(r, store) // sse.PatchSignals([]byte(`{fetching: true}`))
@@ -100,7 +109,7 @@ func proofread(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	slog.Info(fmt.Sprintf("Received %v, %v, %v, %v", store.Endpoint, store.Model, store.Key, store.Prompt))
+	slog.Info(fmt.Sprintf("Received %v, %v, %v, %v for view %v", store.Endpoint, store.Model, store.Key, store.Prompt, store.View))
 	err = store.validate()
 
 	if err != nil {
@@ -128,6 +137,15 @@ func proofread(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+	var systemPrompt string
+	switch store.View {
+	case "proofread":
+		systemPrompt = proofreaderPrompt
+	case "suggestion":
+		systemPrompt = suggestorPrompt
+	default:
+		handleDatastarError(sse, w, http.StatusInternalServerError, fmt.Errorf("view [%v] is not valid please fix the frontend template", store.View))
 	}
 	output := ""
 	messages :=
@@ -178,7 +196,7 @@ func proofread(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
-	err = sse.PatchElementTempl(HistoryEntry(store.Prompt, htmlcontent), datastar.WithSelectorID("history"), datastar.WithModeAppend())
+	err = sse.PatchElementTempl(HistoryEntry(store.View, store.Prompt, htmlcontent), datastar.WithSelectorID("history"), datastar.WithModePrepend())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
