@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"datastart/internal/web"
+	"datastart/internal/web/components/health"
 	"datastart/internal/web/components/home"
 )
 
@@ -12,6 +13,7 @@ func (s *Server) RegisterRoutes() http.Handler {
 
 	// Register static routes
 	fileServer := http.FileServer(http.FS(web.Files))
+	mux.Handle("GET /healthcheck", health.NewHandler())
 	mux.Handle("/assets/", fileServer)
 
 	// Register handlers
