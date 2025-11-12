@@ -6,31 +6,28 @@ import (
 	"strings"
 )
 
-templ WaitingForInput() {
-	<p>Waiting for input...</p>
-}
-
 templ ErrorMessage(code int, err error) {
 	<header>Status { code } </header>
 	<p>{ err.Error() }</p>
 }
 
 templ OutputSection(html templ.Component) {
-	<article data-indicator:fetching aria-busy="true" data-show="$fetching"></article>
-	<article id="promptoutput" data-show="!$fetching">
-		@html
+	<article class="border border-base-300 justify-self-center m-4 prose lg:prose-xl max-w" id="promptoutput" data-show="!$fetching">
+		if html != nil {
+			@html
+		}
 	</article>
 }
 
 templ HistoryEntry(scenario, prompt string, output templ.Component) {
-	<details name="history">
+	<details class="collapse collapse-arrow bg-base-100 border-base-300 border" name="history">
 		{{
-	title := strings.Join([]string{scenario, prompt}, ": ")
-	max_len := int(math.Max(float64(len(title)), 20))
-	truncated_prompt := title[0:max_len]
+			title := strings.Join([]string{scenario, prompt}, ": ")
+			max_len := int(math.Max(float64(len(title)), 20))
+			truncated_prompt := title[0:max_len]
 		}}
-		<summary>{ truncated_prompt }</summary>
-		<article>
+		<summary class="collapse-title font-semibold">{ truncated_prompt }</summary>
+		<article class="collapse-content prose lg:prose-xl max-w-none">
 			<header>{ prompt }</header>
 			<p>
 				@output
@@ -39,97 +36,110 @@ templ HistoryEntry(scenario, prompt string, output templ.Component) {
 	</details>
 }
 
+templ SearchField() {
+	<div role="w-full join join-horizontal">
+		<textarea class="textarea w-full md:w-4/5 join-item mx-4" data-bind:prompt></textarea>
+		// Indended to put any buttons in here
+		// Would prefer to pass a component, but this will work for now.
+		{ children... }
+	</div>
+}
+
 templ Home() {
 	@components.Base() {
 		// Controls
-		<section data-signals="{fetching: false, view: 'proofread'}">
-			<div role="group">
+		<section class="grid grid-columns-1 grow mx-auto my-4" data-signals="{fetching: false, view: 'proofread'}">
+			<div class="flex join" role="group">
 				<button
-					data-attr:class="$view == 'history' ? 'outline' : 'outline secondary'"
-					class="secondary"
+					data-attr:class="$view == 'history' ? 'btn btn-outline btn-primary w-1/4' : 'btn btn-dash btn-primary w-1/4'"
+					class="btn btn-dash w-1/4"
 					data-on:click="$view = 'history'"
 				>History</button>
 				<button
-					data-attr:class="$view == 'proofread' ? 'outline' : 'outline secondary'"
-					class="secondary"
+					data-attr:class="$view == 'proofread' ? 'btn btn-outline btn-primary w-1/4' : 'btn btn-dash btn-primary w-1/4'"
+					class="btn btn-dash w-1/4"
 					data-on:click="$view = 'proofread'"
 				>Proofread</button>
 				<button
-					data-attr:class="$view == 'suggestion' ? 'outline' : 'outline secondary'"
-					class="secondary"
+					data-attr:class="$view == 'suggestion' ? 'btn btn-outline btn-primary w-1/4' : 'btn btn-dash btn-primary w-1/4'"
+					class="btn btn-dash w-1/4"
 					data-on:click="$view = 'suggestion'"
 				>Suggestion</button>
 				<button
-					data-attr:class="$view == 'dict' ? 'outline' : 'outline secondary'"
-					class="secondary"
+					data-attr:class="$view == 'dict' ? 'btn btn-outline btn-primary w-1/4' : 'btn btn-dash btn-primary w-1/4'"
+					class="btn btn-dash w-1/4"
 					data-on:click="$view = 'dict'"
 				>Dictionary</button>
 			</div>
-			<div data-show="$model == '' || $endpoint == '' || $key==''">
-				<h3>Please configure the app settings</h3>
-				<ul>
-					<li data-show="$model == ''">
-						<p>Please set the model name</p>
-					</li>
-					<li data-show="$endpoint == ''">
-						<p>Please set the endpoint </p>
-					</li>
-					<li data-show="$key==''">
-						<p>Please set the api key</p>
-					</li>
-				</ul>
+			<div class="flex justify-self-center py-4">
+				<div class="border border-warning bg-base-100 text-base-content" data-show="$model == '' || $endpoint == '' || $key==''">
+					<h3 class="text-2xl bg-warning text-warning-content p-4">Please configure the app settings</h3>
+					<ul class="list text-xl">
+						<li class="list-row" data-show="$model == ''">
+							<p>Please set the model name</p>
+						</li>
+						<li class="list-row" data-show="$endpoint == ''">
+							<p>Please set the endpoint </p>
+						</li>
+						<li class="list-row" data-show="$key==''">
+							<p>Please set the api key</p>
+						</li>
+					</ul>
+				</div>
 			</div>
-			<div data-show="$view == 'proofread'">
+			<div class="prose lg:prose-xl max-w-none" data-show="$view == 'proofread'">
 				<h3>Proof read your work </h3>
 				<p>
 					Provide some japanese text that you would like to have checked for grammar, word choice, etc. Please note
 					that this is imperfect.
 				</p>
-				<div role="group">
-					<textarea data-bind:prompt></textarea>
+				@SearchField() {
 					<button
+						class="btn btn-xl join-item w-full md:w-3/20"
 						data-on:click="@post('/assist')"
 						data-indicator:fetching
 						data-attr:disabled="$fetching || $model == '' || $endpoint == '' || $key==''"
 						data-attr:aria-busy="$fetching ? 'true' : 'false'"
 					>Check</button>
-				</div>
+				}
 			</div>
-			<div data-show="$view == 'suggestion'">
+			<div class="prose lg:prose-xl max-w-none" data-show="$view == 'suggestion'">
 				<h3>Suggest a Translation </h3>
 				<p>
 					This tool is used to request a suggestion for a sentence. Best used as a starting point and not to translate
 					a full text.
 				</p>
-				<div role="group">
-					<textarea data-bind:prompt></textarea>
+				@SearchField() {
 					<button
+						class="btn btn-xl join-item w-full md:w-3/20"
 						data-on:click="@post('/assist')"
 						data-indicator:fetching
 						data-attr:disabled="$fetching || $model == '' || $endpoint == '' || $key==''"
 						data-attr:aria-busy="$fetching ? 'true' : 'false'"
 					>Receive Suggestion</button>
-				</div>
+				}
 			</div>
-			<div data-show="$view == 'dict'">
+			<div class="prose lg:prose-xl max-w-none" data-show="$view == 'dict'">
 				<h3>Dictionary Lookup</h3>
 				<p>
 					Easily run a search with jisho.org directly from this panel with any kanji. It will open a window so you can
-					continue working and don't lose your progress
+					continue working and don't lose your progress.
+					Powered by <a href="https://www.jisho.org">jisho.org</a>
 				</p>
-				<div role="group">
-					<textarea data-bind:lookup></textarea>
-					<a role="button" data-attr:href="'https://www.jisho.org/search/'.concat($lookup)" target="_blank">
-						Jisho.org
+				@SearchField() {
+					<a class="btn btn-xl join-item w-full md:w-3/20" role="button" data-attr:href="'https://www.jisho.org/search/'.concat($prompt)" target="_blank">
 						Lookup
 					</a>
-				</div>
+				}
 			</div>
-			<div data-show="$view != 'history'">
-				@OutputSection(WaitingForInput())
+			<div class="grid grid-auto-flow" data-show="$view != 'history' && $view != 'dict'">
+				<article class="loading loading-spinner justify-self-center m-8" data-indicator:fetching data-show="$fetching"></article>
+				@OutputSection(nil)
 			</div>
-			<div id="history" data-show="$view == 'history'">
-				<h2>Prompt History</h2>
+			<div class="w-full" data-show="$view == 'history'">
+				<h2 class="text-xl p-4">Prompt History</h2>
+				<p class="text-base-content text-lg">Please feel free to review your previously used prompts below</p>
+				<div class="grid grid-auto-flow" id="history"></div>
 			</div>
 		</section>
 	}

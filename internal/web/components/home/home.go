@@ -97,6 +97,7 @@ func handleDatastarError(sse *datastar.ServerSentEventGenerator, w http.Response
 	}
 }
 
+// TODO: Give better feedback during prompt processing
 func assist(w http.ResponseWriter, r *http.Request) {
 	// Implement a URI parameter to differentiate the prompt that will be used
 	var store = &AIAPISignal{}
@@ -126,18 +127,13 @@ func assist(w http.ResponseWriter, r *http.Request) {
 		handleDatastarError(sse, w, http.StatusBadRequest, err)
 		return
 	}
-	err = sse.PatchElementTempl(OutputSection(WaitingForInput()))
+	err = sse.PatchElementTempl(OutputSection(nil))
 
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	err = sse.PatchSignals([]byte(`{ prompt_output: "Waiting for input..."}`))
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
 	var systemPrompt string
 	switch store.View {
 	case "proofread":
@@ -147,7 +143,7 @@ func assist(w http.ResponseWriter, r *http.Request) {
 	default:
 		handleDatastarError(sse, w, http.StatusInternalServerError, fmt.Errorf("view [%v] is not valid please fix the frontend template", store.View))
 	}
-	output := ""
+	// output := ""
 	messages :=
 		[]llms.MessageContent{
 			{
@@ -171,16 +167,7 @@ func assist(w http.ResponseWriter, r *http.Request) {
 		r.Context(),
 		messages,
 		llms.WithStreamThinking(true),
-		llms.WithStreamingFunc(func(ctx context.Context, chunk []byte) error {
-			content := string(chunk)
-			singleline := strings.ReplaceAll(content, "\n", "")
-			if singleline == "" {
-				return nil
-			}
-			output = output + singleline
-			outputsignal := fmt.Sprintf(`{prompt_output: "%v"}`, output)
-			return sse.PatchSignals([]byte(outputsignal))
-		}))
+	)
 	if err != nil {
 		handleDatastarError(sse, w, http.StatusInternalServerError, err)
 		return

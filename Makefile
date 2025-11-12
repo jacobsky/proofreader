@@ -17,10 +17,16 @@ templ-install:
 		fi; \
 	fi
 
-build: templ-install
+tailwind-install:
+	@if [ ! -f tailwindcss ]; then curl -sL https://github.com/tailwindlabs/tailwindcss/releases/latest/download/tailwindcss-linux-x64 -o tailwindcss; fi
+	
+	@chmod +x tailwindcss
+	@npm install
+
+build: tailwind-install templ-install
 	@echo "Building..."
 	@templ generate
-	
+	@tailwindcss -i tailwind.css -o internal/web/assets/css/output.css	
 	@go build -o main cmd/api/main.go
 
 # Run the application
