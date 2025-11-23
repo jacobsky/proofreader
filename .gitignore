@@ -19,6 +19,7 @@ go.work
 tmp/
 node_modules/
 tailwindcss
+internal/web/assets/css/output.css
 
 # IDE specific files
 .vscode

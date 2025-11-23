@@ -1,11 +1,13 @@
 package components
 
 import "time"
+import "fmt"
 
 templ ConfigField(signal, inputtype, label string) {
 	<input
 		class="input validator w-full"
 		data-bind={ signal }
+		data-effect={ fmt.Sprintf("localStorage.setItem('%v', $%v)", signal, signal) }
 		id={ signal }
 		name={ signal }
 		type={ inputtype }
@@ -18,7 +20,10 @@ templ ConfigField(signal, inputtype, label string) {
 templ ConfigMenu() {
 	<dialog
 		class="modal mg:w-xl"
-		data-signals="{model: '', endpoint: '', key: '', locked: false, modal_open: false}"
+		data-signals:model="localStorage.getItem('model') != null ? localStorage.getItem('model') : ''"
+		data-signals:endpoint="localStorage.getItem('endpoint') != null ? localStorage.getItem('endpoint') : ''"
+		data-signals:key="localStorage.getItem('key') != null ? localStorage.getItem('key') : ''"
+		data-signals="{modal_open: false, locked: true}"
 		name="settings"
 		data-attr:open="$modal_open"
 	>
