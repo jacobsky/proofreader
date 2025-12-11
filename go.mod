@@ -15,7 +15,10 @@ require (
 	github.com/andybalholm/brotli v1.2.0 // indirect
 	github.com/dlclark/regexp2 v1.11.5 // indirect
 	github.com/google/uuid v1.6.0 // indirect
+	github.com/jacobsky/apparently-typing v0.0.0-20251210142813-98bf00cf871a // indirect
 	github.com/klauspost/compress v1.18.0 // indirect
 	github.com/pkoukk/tiktoken-go v0.1.6 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 )
+
+replace github.com/jacobsky/apparently-typing => ./submodules/apparently-typing

@@ -1,0 +1,3 @@
+[submodule "submodules/apparently-typing"]
+	path = submodules/apparently-typing
+	url = git@github.com:jacobsky/apparently-typing.git

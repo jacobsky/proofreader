@@ -17,6 +17,8 @@
 # Go workspace file
 go.work
 tmp/
+
+# For tailwindcss
 node_modules/
 tailwindcss
 internal/web/assets/css/output.css
