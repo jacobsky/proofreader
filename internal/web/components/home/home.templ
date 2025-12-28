@@ -11,12 +11,54 @@ templ ErrorMessage(code int, err error) {
 	<p>{ err.Error() }</p>
 }
 
-templ OutputSection(html templ.Component) {
-	<article class="border border-base-300 justify-self-center m-4 prose lg:prose-xl max-w" id="promptoutput" data-show="!$fetching">
-		if html != nil {
-			@html
-		}
-	</article>
+templ OutputFragment(output ResponseOutput) {
+	<tr>
+		<td class="font-mono">{ output.OriginalSentence }</td>
+		<td class="font-mono">{ output.CorrectedSentence }</td>
+		<td>
+			if output.ErrorDetails == "" {
+				No errors
+			} else {
+				{ output.ErrorDetails }
+			}
+		</td>
+		<td>
+			if output.Reason != "" {
+				Not Applicable
+			} else {
+				{ output.Reason }
+			}
+		</td>
+		<td>
+			if len(output.MisusedWords) > 0 {
+				<ul class="list-disc list-inside">
+					for _, word := range output.MisusedWords {
+						<li>{ word }</li>
+					}
+				</ul>
+			} else {
+				N/A
+			}
+		</td>
+	</tr>
+}
+
+templ OutputContainer() {
+	<table id="promptoutput" class="table table-zebra w-full mb-4">
+		<tr>
+			<th>Original Sentence</th>
+			<th>Corrected Sentence</th>
+			<th>Errors</th>
+			<th>Reason</th>
+			<th>Misused Words</th>
+		</tr>
+	</table>
+}
+
+templ OutputSection() {
+	<div class="indicator">
+		<span class="indicator-item badge badge-primary" data-show="$fetching" data-text="$status"></span>
+	</div>
 }
 
 templ HistoryEntry(scenario, prompt string, output templ.Component) {
@@ -38,7 +80,7 @@ templ HistoryEntry(scenario, prompt string, output templ.Component) {
 
 templ SearchField() {
 	<div role="w-full join join-horizontal">
-		<textarea class="textarea w-full md:w-4/5 join-item mx-4" data-bind:prompt></textarea>
+		<textarea class="textarea w-full md:w-4/5 join-item mx-4 font-mono text-lg leading-relaxed min-h-32 resize-y" data-bind:prompt placeholder="Enter Japanese text here..." spellcheck="false"></textarea>
 		// Indended to put any buttons in here
 		// Would prefer to pass a component, but this will work for now.
 		{ children... }
@@ -72,7 +114,7 @@ templ Home() {
 				>Dictionary</button>
 			</div>
 			<div class="flex justify-self-center py-4">
-				<div class="border border-warning bg-base-100 text-base-content" data-show="$model == '' || $endpoint == '' || $key==''">
+				<div class="border border-warning bg-base-100 text-base-content" data-show="$model == '' || $endpoint == '' || $key==''" style="display: none">
 					<h3 class="text-2xl bg-warning text-warning-content p-4">Please configure the app settings</h3>
 					<ul class="list text-xl">
 						<li class="list-row" data-show="$model == ''">
@@ -134,7 +176,10 @@ templ Home() {
 			</div>
 			<div class="grid grid-auto-flow" data-show="$view != 'history' && $view != 'dict'">
 				<article class="loading loading-spinner justify-self-center m-8" data-indicator:fetching data-show="$fetching"></article>
-				@OutputSection(nil)
+				<div class="alert alert-info mb-4" data-show="$fetching">
+					<span>Processing with AI agents...</span>
+				</div>
+				@OutputSection()
 			</div>
 			<div class="w-full" data-show="$view == 'history'">
 				<h2 class="text-xl p-4">Prompt History</h2>

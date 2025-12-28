@@ -1,10 +1,11 @@
 package home
 
 import (
-	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -17,36 +18,45 @@ import (
 	"github.com/yuin/goldmark/extension"
 )
 
-var proofreaderPrompt = `You are a helpful assistant that assists students in reveiwing and proof reading their prompts.
-	First ensure that all responses to the user are in English.
-	Second, review the Japanese (日本語）sentences provided by the user.
-	Third, breakdown the phrases into individual sentences and then list out the specific mistakes and provide an explanation.
-	If the issue is grammatical, please provide the specific reason the grammar is incorrect.
-	If the issue is vocabulary, please provide a general definition to the mistaken word as well as the word that the student actually wanted.
-	Finally, provide an corrected sentence.
-`
-
-var suggestorPrompt = `You are a helpful assistant that assists language students with translating English sentences to Japanese.
-	First ensure that all responses to the user is in English
-	Second, repond to them by reading their entire question, breaking it down into separate sentences, and then translating them one by one.
-	Third, explain the reason behind each word choice and give a brief summary of the sentence structure.
-	For the output, please ensure that the suggested translations is first, then provide the explanation below.
-	`
-
 var md = goldmark.New(goldmark.WithExtensions(extension.GFM))
 
-func AddRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("POST /assist", assist)
-	mux.Handle("/", newHandler())
+// Converts the input into setnences
+func preprocessInput(input string) []string {
+	// Simple sentence splitter for Japanese
+	// Split on 。, ！, ？
+	sentences := strings.FieldsFunc(input, func(r rune) bool {
+		return r == '。' || r == '！' || r == '？' || r == '\n'
+	})
+	result := make([]string, 0, len(sentences))
+	for _, s := range sentences {
+		s = strings.TrimSpace(s)
+		if s != "" {
+			result = append(result, s+"。") // add back the period
+		}
+	}
+	return result
 }
 
-type handler struct{}
-
-func newHandler() http.Handler {
-	return &handler{}
+type Handler struct {
+	analyzer    string
+	proofreader string
+	explainer   string
 }
 
-func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func NewHandler(analyzer, proofreader, explainer string) *Handler {
+	return &Handler{
+		analyzer:    analyzer,
+		proofreader: proofreader,
+		explainer:   explainer,
+	}
+}
+
+func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("POST /assist", h.assist)
+	mux.Handle("/", h)
+}
+
+func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		templ.Handler(Home()).ServeHTTP(w, r)
@@ -62,6 +72,15 @@ type AIAPISignal struct {
 	Locked   bool   `json:"locked"`
 	Prompt   string `json:"prompt"`
 	View     string `json:"view"`
+	Status   string `json:"status"`
+}
+
+type ResponseOutput struct {
+	OriginalSentence  string   `json:"original_sentence"`
+	CorrectedSentence string   `json:"corrected_sentence"`
+	ErrorDetails      string   `json:"error_details"`
+	Reason            string   `json:"reason"`
+	MisusedWords      []string `json:"misused_words"`
 }
 
 func (signal *AIAPISignal) validate() error {
@@ -89,7 +108,7 @@ func handleDatastarError(sse *datastar.ServerSentEventGenerator, w http.Response
 	// Base case, if no error to handle, skip over it.
 	slog.Debug("Error", "status", status, "error-msg", err)
 	if err != nil {
-		err := sse.PatchElementTempl(OutputSection(ErrorMessage(status, err)))
+		err := sse.ConsoleError(err)
 		if err != nil {
 			slog.Error("Error", "status", status, "error-msg", err)
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -97,12 +116,12 @@ func handleDatastarError(sse *datastar.ServerSentEventGenerator, w http.Response
 	}
 }
 
-// TODO: Give better feedback during prompt processing
-func assist(w http.ResponseWriter, r *http.Request) {
-	// Implement a URI parameter to differentiate the prompt that will be used
-	var store = &AIAPISignal{}
+// Agentic workflow assist function
+func (h *Handler) assist(w http.ResponseWriter, r *http.Request) {
+	// Implement agentic workflow using datastar SSEs
+	store := &AIAPISignal{}
 
-	err := datastar.ReadSignals(r, store) // sse.PatchSignals([]byte(`{fetching: true}`))
+	err := datastar.ReadSignals(r, store)
 
 	sse := datastar.NewSSE(w, r)
 	if err != nil {
@@ -112,81 +131,59 @@ func assist(w http.ResponseWriter, r *http.Request) {
 
 	slog.Info(fmt.Sprintf("Received %v, %v, %v, %v for view %v", store.Endpoint, store.Model, store.Key, store.Prompt, store.View))
 	err = store.validate()
-
 	if err != nil {
 		handleDatastarError(sse, w, http.StatusBadRequest, err)
 		return
 	}
 
-	llm, err := openai.New(
-		openai.WithModel(store.Model),
-		openai.WithBaseURL(store.Endpoint),
-		openai.WithToken(store.Key),
-	)
+	// Step 1: Setup LLM and agents
+	llm, err := openai.New(openai.WithModel(store.Model), openai.WithBaseURL(store.Endpoint), openai.WithToken(store.Key))
 	if err != nil {
 		handleDatastarError(sse, w, http.StatusBadRequest, err)
 		return
 	}
-	err = sse.PatchElementTempl(OutputSection(nil))
 
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
+	sentences := preprocessInput(store.Prompt)
 
-	var systemPrompt string
-	switch store.View {
-	case "proofread":
-		systemPrompt = proofreaderPrompt
-	case "suggestion":
-		systemPrompt = suggestorPrompt
-	default:
-		handleDatastarError(sse, w, http.StatusInternalServerError, fmt.Errorf("view [%v] is not valid please fix the frontend template", store.View))
-	}
-	// output := ""
-	messages :=
-		[]llms.MessageContent{
+	log.Printf("Messages dispatching")
+	// responses := []string{}
+
+	store.Status = "Starting"
+	_ = sse.MarshalAndPatchSignals(store.Status)
+
+	for i, sentence := range sentences {
+		log.Printf("Input: %v", sentence)
+		messages := []llms.MessageContent{
 			{
-				Role: llms.ChatMessageTypeSystem,
-				Parts: []llms.ContentPart{
-					llms.TextContent{
-						Text: systemPrompt,
-					},
-				},
+				Role:  llms.ChatMessageTypeSystem,
+				Parts: []llms.ContentPart{llms.TextContent{Text: h.proofreader}},
 			},
 			{
-				Role: llms.ChatMessageTypeHuman,
-				Parts: []llms.ContentPart{
-					llms.TextContent{
-						Text: store.Prompt,
-					},
-				},
+				Role:  llms.ChatMessageTypeHuman,
+				Parts: []llms.ContentPart{llms.TextContent{Text: sentence}},
 			},
 		}
-	resp, err := llm.GenerateContent(
-		r.Context(),
-		messages,
-		llms.WithStreamThinking(true),
-	)
-	if err != nil {
-		handleDatastarError(sse, w, http.StatusInternalServerError, err)
-		return
-	}
+		log.Printf("Response")
+		response, err := llm.GenerateContent(r.Context(), messages)
+		if err != nil {
+			slog.Error("generation error", "err", err)
+			continue
+		}
 
-	var buf bytes.Buffer
-	if err := md.Convert([]byte(resp.Choices[0].Content), &buf); err != nil {
-		handleDatastarError(sse, w, http.StatusInternalServerError, fmt.Errorf("an internal error has occurred"))
+		log.Printf("Output: %v", response.Choices[0].Content)
+		var output ResponseOutput
+		err = json.Unmarshal([]byte(response.Choices[0].Content), &output)
+		if err != nil {
+			slog.Error("failed to unmarshal response", "err", err)
+			continue
+		}
+		_ = sse.PatchElementTempl(OutputFragment(output), datastar.WithSelectorID("promptoutput"), datastar.WithModeAppend())
+		store.Status = fmt.Sprintf("%v / %v", i, len(sentences))
+		_ = sse.MarshalAndPatchSignals(store.Status)
+		// responses = append(responses, response.Choices[0].Content)
 	}
-	htmlcontent := unsafeRenderMarkdown(buf.String())
-	// sse.PatchSignals([]byte(`{fetching: false}`))
-	err = sse.PatchElementTempl(OutputSection(htmlcontent))
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
-	err = sse.PatchElementTempl(HistoryEntry(store.View, store.Prompt, htmlcontent), datastar.WithSelectorID("history"), datastar.WithModePrepend())
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
+	store.Status = "Generating Summary"
+	_ = sse.MarshalAndPatchSignals(store.Status)
 }
 
 func unsafeRenderMarkdown(html string) templ.Component {

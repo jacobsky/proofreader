@@ -15,9 +15,13 @@ func (s *Server) RegisterRoutes() http.Handler {
 	fileServer := http.FileServer(http.FS(web.Files))
 	mux.Handle("GET /healthcheck", health.NewHandler())
 	mux.Handle("/assets/", fileServer)
-
+	homeHandler := home.NewHandler(
+		web.AnalyzerPrompt,
+		web.ProofreaderPrompt,
+		web.ExplainerPrompt,
+	)
 	// Register handlers
-	home.AddRoutes(mux)
+	homeHandler.RegisterRoutes(mux)
 	// Wrap the mux with CORS middleware
 	return s.corsMiddleware(mux)
 }

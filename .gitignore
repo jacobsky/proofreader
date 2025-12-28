@@ -22,6 +22,7 @@ tmp/
 node_modules/
 tailwindcss
 internal/web/assets/css/output.css
+submodules/
 
 # IDE specific files
 .vscode
