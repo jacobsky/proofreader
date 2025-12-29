@@ -13,29 +13,25 @@ templ ErrorMessage(code int, err error) {
 
 templ OutputFragment(output ResponseOutput) {
 	<tr>
-		<td class="font-mono">{ output.OriginalSentence }</td>
-		<td class="font-mono">{ output.CorrectedSentence }</td>
-		<td>
+		<td class="font-mono break-words">{ output.OriginalSentence }</td>
+		<td class="font-mono break-words">{ output.CorrectedSentence }</td>
+		<td class="break-words">
 			if output.ErrorDetails == "" {
 				No errors
 			} else {
 				{ output.ErrorDetails }
 			}
 		</td>
-		<td>
-			if output.Reason != "" {
-				Not Applicable
+		<td class="break-words">
+			if output.Reason == "" {
+				N/A
 			} else {
 				{ output.Reason }
 			}
 		</td>
-		<td>
+		<td class="break-words">
 			if len(output.MisusedWords) > 0 {
-				<ul class="list-disc list-inside">
-					for _, word := range output.MisusedWords {
-						<li>{ word }</li>
-					}
-				</ul>
+				{ strings.Join(output.MisusedWords, ", ") }
 			} else {
 				N/A
 			}
@@ -43,8 +39,9 @@ templ OutputFragment(output ResponseOutput) {
 	</tr>
 }
 
-templ OutputContainer() {
-	<table id="promptoutput" class="table table-zebra w-full mb-4">
+templ OutputContainer(responses []ResponseOutput) {
+	<table id="outputcontainer" class="table table-zebra table-auto w-5xl">
+		<thead></thead>
 		<tr>
 			<th>Original Sentence</th>
 			<th>Corrected Sentence</th>
@@ -52,12 +49,18 @@ templ OutputContainer() {
 			<th>Reason</th>
 			<th>Misused Words</th>
 		</tr>
+		<tbody id="promptoutput">
+			for _, r := range responses {
+				@OutputFragment(r)
+			}
+		</tbody>
 	</table>
 }
 
 templ OutputSection() {
-	<div class="indicator">
+	<div class="indicator my-4">
 		<span class="indicator-item badge badge-primary" data-show="$fetching" data-text="$status"></span>
+		@OutputContainer([]ResponseOutput{})
 	</div>
 }
 
@@ -174,14 +177,10 @@ templ Home() {
 					</a>
 				}
 			</div>
-			<div class="grid grid-auto-flow" data-show="$view != 'history' && $view != 'dict'">
-				<article class="loading loading-spinner justify-self-center m-8" data-indicator:fetching data-show="$fetching"></article>
-				<div class="alert alert-info mb-4" data-show="$fetching">
-					<span>Processing with AI agents...</span>
-				</div>
+			<div class="grid grid-auto-flow max-w-5xl" data-show="$view != 'history' && $view != 'dict'">
 				@OutputSection()
 			</div>
-			<div class="w-full" data-show="$view == 'history'">
+			<div class="max-w-5xl" data-show="$view == 'history'">
 				<h2 class="text-xl p-4">Prompt History</h2>
 				<p class="text-base-content text-lg">Please feel free to review your previously used prompts below</p>
 				<div class="grid grid-auto-flow" id="history"></div>

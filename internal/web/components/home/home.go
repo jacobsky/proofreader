@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -145,14 +144,11 @@ func (h *Handler) assist(w http.ResponseWriter, r *http.Request) {
 
 	sentences := preprocessInput(store.Prompt)
 
-	log.Printf("Messages dispatching")
-	// responses := []string{}
-
 	store.Status = "Starting"
 	_ = sse.MarshalAndPatchSignals(store.Status)
 
 	for i, sentence := range sentences {
-		log.Printf("Input: %v", sentence)
+		slog.Debug("Input", "sentence", sentence)
 		messages := []llms.MessageContent{
 			{
 				Role:  llms.ChatMessageTypeSystem,
@@ -163,19 +159,72 @@ func (h *Handler) assist(w http.ResponseWriter, r *http.Request) {
 				Parts: []llms.ContentPart{llms.TextContent{Text: sentence}},
 			},
 		}
-		log.Printf("Response")
 		response, err := llm.GenerateContent(r.Context(), messages)
 		if err != nil {
 			slog.Error("generation error", "err", err)
 			continue
 		}
 
-		log.Printf("Output: %v", response.Choices[0].Content)
+		slog.Debug("Output", "content", response.Choices[0].Content)
+
 		var output ResponseOutput
-		err = json.Unmarshal([]byte(response.Choices[0].Content), &output)
+		llmResponse := response.Choices[0].Content
+
+		// Try to parse JSON response
+		err = json.Unmarshal([]byte(llmResponse), &output)
 		if err != nil {
-			slog.Error("failed to unmarshal response", "err", err)
-			continue
+			slog.Warn("Initial JSON parsing failed, attempting retry", "err", err, "response", llmResponse)
+
+			// Create retry prompt to reformat as JSON
+			retryMessages := []llms.MessageContent{
+				{
+					Role: llms.ChatMessageTypeSystem,
+					Parts: []llms.ContentPart{llms.TextContent{Text: `You must respond with VALID JSON only. Your previous response was not valid JSON.
+						Reformat this response as proper JSON:
+						` + llmResponse + `
+						Return ONLY a JSON object with this exact structure:
+						{
+						"original_sentence": "string",
+						"corrected_sentence": "string",
+						"error_details": "string",
+						"reason": "string",
+						"misused_words": []
+						}`}},
+				},
+				{
+					Role:  llms.ChatMessageTypeHuman,
+					Parts: []llms.ContentPart{llms.TextContent{Text: sentence}},
+				},
+			}
+
+			retryResponse, retryErr := llm.GenerateContent(r.Context(), retryMessages)
+			if retryErr != nil {
+				slog.Error("retry generation failed", "err", retryErr)
+				// Use fallback response instead of skipping
+				output = ResponseOutput{
+					OriginalSentence:  sentence,
+					CorrectedSentence: sentence,
+					ErrorDetails:      "Unable to process - AI returned invalid format",
+					Reason:            "",
+					MisusedWords:      []string{},
+				}
+			} else {
+				llmRetryResponse := retryResponse.Choices[0].Content
+				slog.Debug("Retry output", "content", llmRetryResponse)
+
+				retryErr = json.Unmarshal([]byte(llmRetryResponse), &output)
+				if retryErr != nil {
+					slog.Error("retry JSON parsing also failed", "err", retryErr, "response", llmRetryResponse)
+					// Use fallback response
+					output = ResponseOutput{
+						OriginalSentence:  sentence,
+						CorrectedSentence: sentence,
+						ErrorDetails:      "Unable to process - AI returned invalid format after retry",
+						Reason:            "",
+						MisusedWords:      []string{},
+					}
+				}
+			}
 		}
 		_ = sse.PatchElementTempl(OutputFragment(output), datastar.WithSelectorID("promptoutput"), datastar.WithModeAppend())
 		store.Status = fmt.Sprintf("%v / %v", i, len(sentences))
