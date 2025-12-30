@@ -18,7 +18,6 @@ func (s *Server) RegisterRoutes() http.Handler {
 	homeHandler := home.NewHandler(
 		web.AnalyzerPrompt,
 		web.ProofreaderPrompt,
-		web.ExplainerPrompt,
 	)
 	// Register handlers
 	homeHandler.RegisterRoutes(mux)

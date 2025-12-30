@@ -39,14 +39,12 @@ func preprocessInput(input string) []string {
 type Handler struct {
 	analyzer    string
 	proofreader string
-	explainer   string
 }
 
-func NewHandler(analyzer, proofreader, explainer string) *Handler {
+func NewHandler(analyzer, proofreader string) *Handler {
 	return &Handler{
 		analyzer:    analyzer,
 		proofreader: proofreader,
-		explainer:   explainer,
 	}
 }
 
@@ -134,6 +132,8 @@ func (h *Handler) assist(w http.ResponseWriter, r *http.Request) {
 		handleDatastarError(sse, w, http.StatusBadRequest, err)
 		return
 	}
+	// Send this to clear the section from the last collection of prompts.
+	_ = sse.PatchElementTempl(OutputSection(), datastar.WithSelectorID("output_section"))
 
 	// Step 1: Setup LLM and agents
 	llm, err := openai.New(openai.WithModel(store.Model), openai.WithBaseURL(store.Endpoint), openai.WithToken(store.Key))
@@ -143,10 +143,12 @@ func (h *Handler) assist(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sentences := preprocessInput(store.Prompt)
+	responses := []ResponseOutput{}
 
 	store.Status = "Starting"
 	_ = sse.MarshalAndPatchSignals(store.Status)
 
+	// Step 1. Analyze each sentence for issues.
 	for i, sentence := range sentences {
 		slog.Debug("Input", "sentence", sentence)
 		messages := []llms.MessageContent{
@@ -170,7 +172,8 @@ func (h *Handler) assist(w http.ResponseWriter, r *http.Request) {
 		var output ResponseOutput
 		llmResponse := response.Choices[0].Content
 
-		// Try to parse JSON response
+		// LLMs sometimes do not properly parse the json output
+		// If this is the case, we need to send an extra request to get it to generate properly.
 		err = json.Unmarshal([]byte(llmResponse), &output)
 		if err != nil {
 			slog.Warn("Initial JSON parsing failed, attempting retry", "err", err, "response", llmResponse)
@@ -227,11 +230,49 @@ func (h *Handler) assist(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		_ = sse.PatchElementTempl(OutputFragment(output), datastar.WithSelectorID("promptoutput"), datastar.WithModeAppend())
+
 		store.Status = fmt.Sprintf("%v / %v", i, len(sentences))
 		_ = sse.MarshalAndPatchSignals(store.Status)
-		// responses = append(responses, response.Choices[0].Content)
+
+		responses = append(responses, output)
 	}
-	store.Status = "Generating Summary"
+
+	correctedString := strings.Builder{}
+	for _, r := range responses {
+		correctedString.WriteString(r.CorrectedSentence)
+		correctedString.WriteString(" ")
+	}
+
+	output := correctedString.String()
+	_ = sse.PatchElementTempl(FinalOutput(output), datastar.WithSelectorID("final_output"))
+
+	store.Status = "Generating Analysis"
+	_ = sse.MarshalAndPatchSignals(store.Status)
+
+	// Step 4. Generate a general analysis of the corrected input text
+	messages := []llms.MessageContent{
+		{
+			Role:  llms.ChatMessageTypeSystem,
+			Parts: []llms.ContentPart{llms.TextContent{Text: h.analyzer}},
+		},
+		{
+			Role:  llms.ChatMessageTypeHuman,
+			Parts: []llms.ContentPart{llms.TextContent{Text: output}},
+		},
+	}
+	response, err := llm.GenerateContent(r.Context(), messages)
+	if err != nil {
+		slog.Error("generation error", "err", err)
+		return
+	}
+
+	var buf strings.Builder
+	md.Convert([]byte(response.Choices[0].Content), &buf)
+	html := buf.String()
+
+	_ = sse.PatchElementTempl(Notes(unsafeRenderMarkdown(html)), datastar.WithSelectorID("analysis_notes"))
+
+	store.Status = "Complete"
 	_ = sse.MarshalAndPatchSignals(store.Status)
 }
 

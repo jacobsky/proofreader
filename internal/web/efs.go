@@ -18,8 +18,3 @@ var AnalyzerPrompt string
 //
 //go:embed "prompts/proofreader.md"
 var ProofreaderPrompt string
-
-// ExplainerPrompt contains the prompt data for the explanation agent
-//
-//go:embed "prompts/explainer.md"
-var ExplainerPrompt string

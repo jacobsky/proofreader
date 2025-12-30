@@ -2,13 +2,37 @@ package home
 
 import (
 	"datastart/internal/web/components"
+	"fmt"
 	"math"
+	"net/url"
 	"strings"
 )
 
 templ ErrorMessage(code int, err error) {
 	<header>Status { code } </header>
 	<p>{ err.Error() }</p>
+}
+
+templ JishoLink(word string) {
+	<a class="link" href={ fmt.Sprintf("https://jisho.org/search/%s", url.QueryEscape(word)) }>{ word }</a>
+}
+
+templ Notes(output templ.Component) {
+	<section id="analysis_notes">
+		if output != nil {
+			<h3>Notes about Submission</h3>
+			@output
+		}
+	</section>
+}
+
+templ FinalOutput(fullOutput string) {
+	<section id="final_output">
+		if fullOutput != "" {
+			<h3>Corrected Writing</h3>
+			<p>{ fullOutput }</p>
+		}
+	</section>
 }
 
 templ OutputFragment(output ResponseOutput) {
@@ -23,45 +47,45 @@ templ OutputFragment(output ResponseOutput) {
 			}
 		</td>
 		<td class="break-words">
-			if output.Reason == "" {
-				N/A
-			} else {
-				{ output.Reason }
-			}
-		</td>
-		<td class="break-words">
-			if len(output.MisusedWords) > 0 {
-				{ strings.Join(output.MisusedWords, ", ") }
-			} else {
-				N/A
-			}
+			<ul>
+				if len(output.MisusedWords) > 0 {
+					for _, word := range output.MisusedWords {
+						<li>
+							@JishoLink(word)
+						</li>
+					}
+				} else {
+					<li>N/A</li>
+				}
+			</ul>
 		</td>
 	</tr>
 }
 
 templ OutputContainer(responses []ResponseOutput) {
 	<table id="outputcontainer" class="table table-zebra table-auto w-5xl">
-		<thead></thead>
-		<tr>
-			<th>Original Sentence</th>
-			<th>Corrected Sentence</th>
-			<th>Errors</th>
-			<th>Reason</th>
-			<th>Misused Words</th>
-		</tr>
+		<thead data-show="document.querySelector('#promptoutput').children.length > 0">
+			<tr>
+				<th>Original Sentence</th>
+				<th>Corrected Sentence</th>
+				<th>Errors</th>
+				<th>Misused Words</th>
+			</tr>
+		</thead>
 		<tbody id="promptoutput">
 			for _, r := range responses {
 				@OutputFragment(r)
 			}
 		</tbody>
 	</table>
+	@FinalOutput("")
+	@Notes(nil)
 }
 
 templ OutputSection() {
-	<div class="indicator my-4">
-		<span class="indicator-item badge badge-primary" data-show="$fetching" data-text="$status"></span>
+	<article id="output_section" class="prose-xl max-w-5xl justify-self-center grid grid-columns-1">
 		@OutputContainer([]ResponseOutput{})
-	</div>
+	</article>
 }
 
 templ HistoryEntry(scenario, prompt string, output templ.Component) {
