@@ -62,7 +62,7 @@ templ OutputFragment(output ResponseOutput) {
 	</tr>
 }
 
-templ OutputContainer(responses []ResponseOutput) {
+templ OutputContainer(responses []ResponseOutput, final_output string, notes templ.Component) {
 	<table id="outputcontainer" class="table table-zebra table-auto w-5xl">
 		<thead data-show="document.querySelector('#promptoutput').children.length > 0">
 			<tr>
@@ -78,13 +78,17 @@ templ OutputContainer(responses []ResponseOutput) {
 			}
 		</tbody>
 	</table>
-	@FinalOutput("")
-	@Notes(nil)
+	@FinalOutput(final_output)
+	@Notes(notes)
+}
+
+templ BaseOutputContainer(responses []ResponseOutput) {
+	@OutputContainer(responses, "", nil)
 }
 
 templ OutputSection() {
 	<article id="output_section" class="prose-xl max-w-5xl justify-self-center grid grid-columns-1">
-		@OutputContainer([]ResponseOutput{})
+		@BaseOutputContainer([]ResponseOutput{})
 	</article>
 }
 

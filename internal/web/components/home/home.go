@@ -39,12 +39,14 @@ func preprocessInput(input string) []string {
 type Handler struct {
 	analyzer    string
 	proofreader string
+	retry       string
 }
 
-func NewHandler(analyzer, proofreader string) *Handler {
+func NewHandler(analyzer, proofreader, retry string) *Handler {
 	return &Handler{
 		analyzer:    analyzer,
 		proofreader: proofreader,
+		retry:       retry,
 	}
 }
 
@@ -151,83 +153,21 @@ func (h *Handler) assist(w http.ResponseWriter, r *http.Request) {
 	// Step 1. Analyze each sentence for issues.
 	for i, sentence := range sentences {
 		slog.Debug("Input", "sentence", sentence)
-		messages := []llms.MessageContent{
-			{
-				Role:  llms.ChatMessageTypeSystem,
-				Parts: []llms.ContentPart{llms.TextContent{Text: h.proofreader}},
-			},
-			{
-				Role:  llms.ChatMessageTypeHuman,
-				Parts: []llms.ContentPart{llms.TextContent{Text: sentence}},
-			},
-		}
-		response, err := llm.GenerateContent(r.Context(), messages)
+		llmResponse, err := h.proofread(llm, r.Context(), sentence)
 		if err != nil {
 			slog.Error("generation error", "err", err)
 			continue
 		}
 
-		slog.Debug("Output", "content", response.Choices[0].Content)
-
-		var output ResponseOutput
-		llmResponse := response.Choices[0].Content
+		slog.Debug("Output", "content", llmResponse)
 
 		// LLMs sometimes do not properly parse the json output
 		// If this is the case, we need to send an extra request to get it to generate properly.
+		var output ResponseOutput
 		err = json.Unmarshal([]byte(llmResponse), &output)
 		if err != nil {
+			output = h.getJSON(llm, r.Context(), sentence, llmResponse)
 			slog.Warn("Initial JSON parsing failed, attempting retry", "err", err, "response", llmResponse)
-
-			// Create retry prompt to reformat as JSON
-			retryMessages := []llms.MessageContent{
-				{
-					Role: llms.ChatMessageTypeSystem,
-					Parts: []llms.ContentPart{llms.TextContent{Text: `You must respond with VALID JSON only. Your previous response was not valid JSON.
-						Reformat this response as proper JSON:
-						` + llmResponse + `
-						Return ONLY a JSON object with this exact structure:
-						{
-						"original_sentence": "string",
-						"corrected_sentence": "string",
-						"error_details": "string",
-						"reason": "string",
-						"misused_words": []
-						}`}},
-				},
-				{
-					Role:  llms.ChatMessageTypeHuman,
-					Parts: []llms.ContentPart{llms.TextContent{Text: sentence}},
-				},
-			}
-
-			retryResponse, retryErr := llm.GenerateContent(r.Context(), retryMessages)
-			if retryErr != nil {
-				slog.Error("retry generation failed", "err", retryErr)
-				// Use fallback response instead of skipping
-				output = ResponseOutput{
-					OriginalSentence:  sentence,
-					CorrectedSentence: sentence,
-					ErrorDetails:      "Unable to process - AI returned invalid format",
-					Reason:            "",
-					MisusedWords:      []string{},
-				}
-			} else {
-				llmRetryResponse := retryResponse.Choices[0].Content
-				slog.Debug("Retry output", "content", llmRetryResponse)
-
-				retryErr = json.Unmarshal([]byte(llmRetryResponse), &output)
-				if retryErr != nil {
-					slog.Error("retry JSON parsing also failed", "err", retryErr, "response", llmRetryResponse)
-					// Use fallback response
-					output = ResponseOutput{
-						OriginalSentence:  sentence,
-						CorrectedSentence: sentence,
-						ErrorDetails:      "Unable to process - AI returned invalid format after retry",
-						Reason:            "",
-						MisusedWords:      []string{},
-					}
-				}
-			}
 		}
 		_ = sse.PatchElementTempl(OutputFragment(output), datastar.WithSelectorID("promptoutput"), datastar.WithModeAppend())
 
@@ -250,6 +190,84 @@ func (h *Handler) assist(w http.ResponseWriter, r *http.Request) {
 	_ = sse.MarshalAndPatchSignals(store.Status)
 
 	// Step 4. Generate a general analysis of the corrected input text
+	html, err := h.analyze(llm, r.Context(), output)
+	if err != nil {
+		_ = sse.ConsoleError(err)
+		return
+	}
+	_ = sse.PatchElementTempl(Notes(unsafeRenderMarkdown(html)), datastar.WithSelectorID("analysis_notes"))
+
+	_ = sse.PatchElementTempl(HistoryEntry(store.View, store.Prompt, OutputContainer(responses, output, unsafeRenderMarkdown(html))), datastar.WithModeAppend(), datastar.WithSelectorID("history"))
+	store.Status = "Complete"
+	_ = sse.MarshalAndPatchSignals(store.Status)
+}
+
+func (h *Handler) proofread(llm *openai.LLM, ctx context.Context, sentence string) (string, error) {
+	messages := []llms.MessageContent{
+		{
+			Role:  llms.ChatMessageTypeSystem,
+			Parts: []llms.ContentPart{llms.TextContent{Text: h.proofreader}},
+		},
+		{
+			Role:  llms.ChatMessageTypeHuman,
+			Parts: []llms.ContentPart{llms.TextContent{Text: sentence}},
+		},
+	}
+
+	response, err := llm.GenerateContent(ctx, messages)
+	if err != nil {
+		return "", err
+	}
+	return response.Choices[0].Content, err
+}
+
+func (h *Handler) getJSON(llm *openai.LLM, ctx context.Context, sentence, llmResponse string) ResponseOutput {
+	// Create retry prompt to reformat as JSON
+	retryPrompt := strings.Replace(h.retry, "{LLM_RESPONSE}", llmResponse, 1)
+	retryMessages := []llms.MessageContent{
+		{
+			Role:  llms.ChatMessageTypeSystem,
+			Parts: []llms.ContentPart{llms.TextContent{Text: retryPrompt}},
+		},
+		{
+			Role:  llms.ChatMessageTypeHuman,
+			Parts: []llms.ContentPart{llms.TextContent{Text: sentence}},
+		},
+	}
+
+	retryResponse, retryErr := llm.GenerateContent(ctx, retryMessages)
+	var output ResponseOutput
+	if retryErr != nil {
+		slog.Error("retry generation failed", "err", retryErr)
+		// Use fallback response instead of skipping
+		output = ResponseOutput{
+			OriginalSentence:  sentence,
+			CorrectedSentence: sentence,
+			ErrorDetails:      "Unable to process - AI returned invalid format",
+			Reason:            "",
+			MisusedWords:      []string{},
+		}
+	} else {
+		llmRetryResponse := retryResponse.Choices[0].Content
+		slog.Debug("Retry output", "content", llmRetryResponse)
+
+		retryErr = json.Unmarshal([]byte(llmRetryResponse), &output)
+		if retryErr != nil {
+			slog.Error("retry JSON parsing also failed", "err", retryErr, "response", llmRetryResponse)
+			// Use fallback response
+			output = ResponseOutput{
+				OriginalSentence:  sentence,
+				CorrectedSentence: sentence,
+				ErrorDetails:      "Unable to process - AI returned invalid format after retry",
+				Reason:            "",
+				MisusedWords:      []string{},
+			}
+		}
+	}
+	return output
+}
+
+func (h *Handler) analyze(llm *openai.LLM, ctx context.Context, text string) (string, error) {
 	messages := []llms.MessageContent{
 		{
 			Role:  llms.ChatMessageTypeSystem,
@@ -257,23 +275,24 @@ func (h *Handler) assist(w http.ResponseWriter, r *http.Request) {
 		},
 		{
 			Role:  llms.ChatMessageTypeHuman,
-			Parts: []llms.ContentPart{llms.TextContent{Text: output}},
+			Parts: []llms.ContentPart{llms.TextContent{Text: text}},
 		},
 	}
-	response, err := llm.GenerateContent(r.Context(), messages)
+
+	response, err := llm.GenerateContent(ctx, messages)
 	if err != nil {
 		slog.Error("generation error", "err", err)
-		return
+		return "", err
 	}
 
 	var buf strings.Builder
-	md.Convert([]byte(response.Choices[0].Content), &buf)
+	err = md.Convert([]byte(response.Choices[0].Content), &buf)
+	if err != nil {
+		slog.Error("Markdown parsing error", "err", err)
+		return "", err
+	}
 	html := buf.String()
-
-	_ = sse.PatchElementTempl(Notes(unsafeRenderMarkdown(html)), datastar.WithSelectorID("analysis_notes"))
-
-	store.Status = "Complete"
-	_ = sse.MarshalAndPatchSignals(store.Status)
+	return html, nil
 }
 
 func unsafeRenderMarkdown(html string) templ.Component {

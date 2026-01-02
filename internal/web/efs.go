@@ -18,3 +18,8 @@ var AnalyzerPrompt string
 //
 //go:embed "prompts/proofreader.md"
 var ProofreaderPrompt string
+
+// RetryPrompt contains the prompt data for the retry agent
+//
+//go:embed "prompts/outputJSON.md"
+var OutputJSON string
