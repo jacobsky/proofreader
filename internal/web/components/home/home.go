@@ -37,26 +37,56 @@ func preprocessInput(input string) []string {
 }
 
 type Handler struct {
-	analyzer    string
-	proofreader string
-	retry       string
+	analyzer      string
+	proofreader   string
+	suggestor     string
+	convertToJSON string
 }
 
-func NewHandler(analyzer, proofreader, retry string) *Handler {
+func NewHandler(analyzer, proofreader, suggestor, convertToJSON string) *Handler {
 	return &Handler{
-		analyzer:    analyzer,
-		proofreader: proofreader,
-		retry:       retry,
+		analyzer:      analyzer,
+		proofreader:   proofreader,
+		suggestor:     suggestor,
+		convertToJSON: convertToJSON,
 	}
 }
 
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("POST /assist", h.assist)
 	mux.Handle("/", h)
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
+	case http.MethodPost:
+
+		store := &AIAPISignal{}
+
+		err := datastar.ReadSignals(r, store)
+
+		sse := datastar.NewSSE(w, r)
+		if err != nil {
+			handleDatastarError(sse, http.StatusInternalServerError, err)
+			return
+		}
+
+		slog.Info(fmt.Sprintf("Received %v, %v, %v, %v for view %v", store.Endpoint, store.Model, store.Key, store.Prompt, store.View))
+		err = store.validate()
+		if err != nil {
+			handleDatastarError(sse, http.StatusBadRequest, err)
+			return
+		}
+		switch store.View {
+		case "proofread":
+			h.assist(sse, store)
+		case "suggestion":
+			h.suggestion(sse, store)
+		}
+		handleDatastarError(
+			sse,
+			400,
+			fmt.Errorf("view %v not allowed to call this function", store.View),
+		)
 	case http.MethodGet:
 		templ.Handler(Home()).ServeHTTP(w, r)
 	default:
@@ -103,44 +133,27 @@ func (signal *AIAPISignal) validate() error {
 	}
 }
 
-func handleDatastarError(sse *datastar.ServerSentEventGenerator, w http.ResponseWriter, status int, err error) {
+func handleDatastarError(sse *datastar.ServerSentEventGenerator, status int, err error) {
 	// Base case, if no error to handle, skip over it.
 	slog.Debug("Error", "status", status, "error-msg", err)
 	if err != nil {
 		err := sse.ConsoleError(err)
 		if err != nil {
 			slog.Error("Error", "status", status, "error-msg", err)
-			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 	}
 }
 
 // Agentic workflow assist function
-func (h *Handler) assist(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) assist(sse *datastar.ServerSentEventGenerator, store *AIAPISignal) {
 	// Implement agentic workflow using datastar SSEs
-	store := &AIAPISignal{}
-
-	err := datastar.ReadSignals(r, store)
-
-	sse := datastar.NewSSE(w, r)
-	if err != nil {
-		handleDatastarError(sse, w, http.StatusInternalServerError, err)
-		return
-	}
-
-	slog.Info(fmt.Sprintf("Received %v, %v, %v, %v for view %v", store.Endpoint, store.Model, store.Key, store.Prompt, store.View))
-	err = store.validate()
-	if err != nil {
-		handleDatastarError(sse, w, http.StatusBadRequest, err)
-		return
-	}
 	// Send this to clear the section from the last collection of prompts.
 	_ = sse.PatchElementTempl(OutputSection(), datastar.WithSelectorID("output_section"))
 
 	// Step 1: Setup LLM and agents
 	llm, err := openai.New(openai.WithModel(store.Model), openai.WithBaseURL(store.Endpoint), openai.WithToken(store.Key))
 	if err != nil {
-		handleDatastarError(sse, w, http.StatusBadRequest, err)
+		handleDatastarError(sse, http.StatusBadRequest, err)
 		return
 	}
 
@@ -153,7 +166,7 @@ func (h *Handler) assist(w http.ResponseWriter, r *http.Request) {
 	// Step 1. Analyze each sentence for issues.
 	for i, sentence := range sentences {
 		slog.Debug("Input", "sentence", sentence)
-		llmResponse, err := h.proofread(llm, r.Context(), sentence)
+		llmResponse, err := h.proofread(llm, sse.Context(), sentence)
 		if err != nil {
 			slog.Error("generation error", "err", err)
 			continue
@@ -166,7 +179,7 @@ func (h *Handler) assist(w http.ResponseWriter, r *http.Request) {
 		var output ResponseOutput
 		err = json.Unmarshal([]byte(llmResponse), &output)
 		if err != nil {
-			output = h.getJSON(llm, r.Context(), sentence, llmResponse)
+			output = h.getJSON(llm, sse.Context(), sentence, llmResponse)
 			slog.Warn("Initial JSON parsing failed, attempting retry", "err", err, "response", llmResponse)
 		}
 		_ = sse.PatchElementTempl(OutputFragment(output), datastar.WithSelectorID("promptoutput"), datastar.WithModeAppend())
@@ -190,7 +203,7 @@ func (h *Handler) assist(w http.ResponseWriter, r *http.Request) {
 	_ = sse.MarshalAndPatchSignals(store.Status)
 
 	// Step 4. Generate a general analysis of the corrected input text
-	html, err := h.analyze(llm, r.Context(), output)
+	html, err := h.analyze(llm, sse.Context(), output)
 	if err != nil {
 		_ = sse.ConsoleError(err)
 		return
@@ -198,6 +211,39 @@ func (h *Handler) assist(w http.ResponseWriter, r *http.Request) {
 	_ = sse.PatchElementTempl(Notes(unsafeRenderMarkdown(html)), datastar.WithSelectorID("analysis_notes"))
 
 	_ = sse.PatchElementTempl(HistoryEntry(store.View, store.Prompt, OutputContainer(responses, output, unsafeRenderMarkdown(html))), datastar.WithModeAppend(), datastar.WithSelectorID("history"))
+	store.Status = "Complete"
+	_ = sse.MarshalAndPatchSignals(store.Status)
+}
+
+// Agentic workflow assist function
+func (h *Handler) suggestion(sse *datastar.ServerSentEventGenerator, store *AIAPISignal) {
+	// Implement agentic workflow using datastar SSEs
+	// Send this to clear the section from the last collection of prompts.
+	_ = sse.PatchElementTempl(OutputSection(), datastar.WithSelectorID("output_section"))
+
+	// Step 1: Setup LLM and agents
+	llm, err := openai.New(openai.WithModel(store.Model), openai.WithBaseURL(store.Endpoint), openai.WithToken(store.Key))
+	if err != nil {
+		handleDatastarError(sse, http.StatusBadRequest, err)
+		return
+	}
+
+	store.Status = "Starting"
+	_ = sse.MarshalAndPatchSignals(store.Status)
+
+	slog.Debug("Input", "sentence", store.Prompt)
+	_ = sse.MarshalAndPatchSignals(store.Status)
+
+	// Step 4. Generate based on the suggestion
+	html, err := h.suggestPrompt(llm, sse.Context(), store.Prompt)
+	if err != nil {
+		_ = sse.ConsoleError(err)
+		return
+	}
+	_ = sse.PatchElementTempl(Notes(unsafeRenderMarkdown(html)), datastar.WithSelectorID("analysis_notes"))
+
+	_ = sse.PatchElementTempl(HistoryEntry(store.View, store.Prompt, OutputContainer([]ResponseOutput{}, "", unsafeRenderMarkdown(html))), datastar.WithModeAppend(), datastar.WithSelectorID("history"))
+
 	store.Status = "Complete"
 	_ = sse.MarshalAndPatchSignals(store.Status)
 }
@@ -223,7 +269,7 @@ func (h *Handler) proofread(llm *openai.LLM, ctx context.Context, sentence strin
 
 func (h *Handler) getJSON(llm *openai.LLM, ctx context.Context, sentence, llmResponse string) ResponseOutput {
 	// Create retry prompt to reformat as JSON
-	retryPrompt := strings.Replace(h.retry, "{LLM_RESPONSE}", llmResponse, 1)
+	retryPrompt := strings.Replace(h.convertToJSON, "{LLM_RESPONSE}", llmResponse, 1)
 	retryMessages := []llms.MessageContent{
 		{
 			Role:  llms.ChatMessageTypeSystem,
@@ -272,6 +318,34 @@ func (h *Handler) analyze(llm *openai.LLM, ctx context.Context, text string) (st
 		{
 			Role:  llms.ChatMessageTypeSystem,
 			Parts: []llms.ContentPart{llms.TextContent{Text: h.analyzer}},
+		},
+		{
+			Role:  llms.ChatMessageTypeHuman,
+			Parts: []llms.ContentPart{llms.TextContent{Text: text}},
+		},
+	}
+
+	response, err := llm.GenerateContent(ctx, messages)
+	if err != nil {
+		slog.Error("generation error", "err", err)
+		return "", err
+	}
+
+	var buf strings.Builder
+	err = md.Convert([]byte(response.Choices[0].Content), &buf)
+	if err != nil {
+		slog.Error("Markdown parsing error", "err", err)
+		return "", err
+	}
+	html := buf.String()
+	return html, nil
+}
+
+func (h *Handler) suggestPrompt(llm *openai.LLM, ctx context.Context, text string) (string, error) {
+	messages := []llms.MessageContent{
+		{
+			Role:  llms.ChatMessageTypeSystem,
+			Parts: []llms.ContentPart{llms.TextContent{Text: h.suggestor}},
 		},
 		{
 			Role:  llms.ChatMessageTypeHuman,

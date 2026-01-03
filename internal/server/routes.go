@@ -18,6 +18,7 @@ func (s *Server) RegisterRoutes() http.Handler {
 	homeHandler := home.NewHandler(
 		web.AnalyzerPrompt,
 		web.ProofreaderPrompt,
+		web.SuggestorPrompt,
 		web.OutputJSON,
 	)
 	// Register handlers
