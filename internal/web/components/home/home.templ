@@ -118,30 +118,43 @@ templ SearchField() {
 	</div>
 }
 
+func shouldShowView(view string) string {
+	return fmt.Sprintf("$view == '%v' ? 'btn btn-outline btn-primary w-1/4' : 'btn btn-dash btn-primary w-1/4'", view)
+}
+
+func setView(view string) string {
+	return fmt.Sprintf("$view = '%v'", view)
+}
+
 templ Home() {
+	{{
+		const searchDisabled = "$fetching || $model == '' || $endpoint == '' || $key==''"
+		const searchBusy = "$fetching ? 'true' : 'false'"
+		const searchButton = "@post('/')"
+	}}
 	@components.Base() {
 		// Controls
 		<section class="grid grid-columns-1 grow mx-auto my-4" data-signals="{fetching: false, view: 'proofread'}">
 			<div class="flex join" role="group">
 				<button
-					data-attr:class="$view == 'history' ? 'btn btn-outline btn-primary w-1/4' : 'btn btn-dash btn-primary w-1/4'"
+					data-attr:class={ shouldShowView("history") }
 					class="btn btn-dash w-1/4"
-					data-on:click="$view = 'history'"
+					data-on:click={ setView("history") }
 				>History</button>
 				<button
-					data-attr:class="$view == 'proofread' ? 'btn btn-outline btn-primary w-1/4' : 'btn btn-dash btn-primary w-1/4'"
+					data-attr:class={ shouldShowView("proofread") }
 					class="btn btn-dash w-1/4"
-					data-on:click="$view = 'proofread'"
+					data-on:click={ setView("proofread") }
 				>Proofread</button>
 				<button
-					data-attr:class="$view == 'suggestion' ? 'btn btn-outline btn-primary w-1/4' : 'btn btn-dash btn-primary w-1/4'"
+					data-attr:class={ shouldShowView("suggestion") }
 					class="btn btn-dash w-1/4"
-					data-on:click="$view = 'suggestion'"
+					data-on:click={ setView("suggestion") }
 				>Suggestion</button>
 				<button
-					data-attr:class="$view == 'dict' ? 'btn btn-outline btn-primary w-1/4' : 'btn btn-dash btn-primary w-1/4'"
+					data-attr:class={ shouldShowView("dict") }
 					class="btn btn-dash w-1/4"
-					data-on:click="$view = 'dict'"
+					data-on:click={ setView("dict") }
 				>Dictionary</button>
 			</div>
 			<div class="flex justify-self-center py-4">
@@ -169,10 +182,10 @@ templ Home() {
 				@SearchField() {
 					<button
 						class="btn btn-xl join-item w-full md:w-3/20"
-						data-on:click="@post('/assist')"
+						data-on:click={ searchButton }
 						data-indicator:fetching
-						data-attr:disabled="$fetching || $model == '' || $endpoint == '' || $key==''"
-						data-attr:aria-busy="$fetching ? 'true' : 'false'"
+						data-attr:disabled={ searchDisabled }
+						data-attr:aria-busy={ searchBusy }
 					>Check</button>
 				}
 			</div>
@@ -185,10 +198,10 @@ templ Home() {
 				@SearchField() {
 					<button
 						class="btn btn-xl join-item w-full md:w-3/20"
-						data-on:click="@post('/assist')"
+						data-on:click={ searchButton }
 						data-indicator:fetching
-						data-attr:disabled="$fetching || $model == '' || $endpoint == '' || $key==''"
-						data-attr:aria-busy="$fetching ? 'true' : 'false'"
+						data-attr:disabled={ searchDisabled }
+						data-attr:aria-busy={ searchBusy }
 					>Receive Suggestion</button>
 				}
 			</div>
