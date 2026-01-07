@@ -118,6 +118,20 @@ templ SearchField() {
 	</div>
 }
 
+templ JishoLookup(words string) {
+	<iframe
+		id="jisho_page"
+		loading="lazy"
+		class="w-full xl:w-5xl"
+		height="500"
+		if (words != "") {
+			src={ fmt.Sprintf("https://jisho.org/search/%s", words) }
+		} else {
+			src="about:blank"
+		}
+	></iframe>
+}
+
 func shouldShowView(view string) string {
 	return fmt.Sprintf("$view == '%v' ? 'btn btn-outline btn-primary w-1/4' : 'btn btn-dash btn-primary w-1/4'", view)
 }
@@ -208,14 +222,18 @@ templ Home() {
 			<div class="prose lg:prose-xl max-w-none" data-show="$view == 'dict'">
 				<h3>Dictionary Lookup</h3>
 				<p>
-					Easily run a search with jisho.org directly from this panel with any kanji. It will open a window so you can
-					continue working and don't lose your progress.
 					Powered by <a href="https://www.jisho.org">jisho.org</a>
 				</p>
 				@SearchField() {
-					<a class="btn btn-xl join-item w-full md:w-3/20" role="button" data-attr:href="'https://www.jisho.org/search/'.concat($prompt)" target="_blank">
+					<button
+						class="btn btn-xl join-item w-full md:w-3/20"
+						data-on:click={ searchButton }
+						data-indicator:fetching
+						data-attr:disabled={ searchDisabled }
+						data-attr:aria-busy={ searchBusy }
+					>
 						Lookup
-					</a>
+					</button>
 				}
 			</div>
 			<div class="grid grid-auto-flow max-w-5xl" data-show="$view != 'history' && $view != 'dict'">
@@ -225,6 +243,9 @@ templ Home() {
 				<h2 class="text-xl p-4">Prompt History</h2>
 				<p class="text-base-content text-lg">Please feel free to review your previously used prompts below</p>
 				<div class="grid grid-auto-flow" id="history"></div>
+			</div>
+			<div class="grid grid-auto-flow max-w-5xl max-h-full md:max-h-screen" data-show="$view == 'dict'">
+				@JishoLookup("")
 			</div>
 		</section>
 	}

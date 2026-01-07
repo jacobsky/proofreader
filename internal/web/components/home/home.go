@@ -81,12 +81,15 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			h.assist(sse, store)
 		case "suggestion":
 			h.suggestion(sse, store)
+		case "dict":
+			h.dict(sse, store)
+		default:
+			handleDatastarError(
+				sse,
+				400,
+				fmt.Errorf("view %v not allowed to call this function", store.View),
+			)
 		}
-		handleDatastarError(
-			sse,
-			400,
-			fmt.Errorf("view %v not allowed to call this function", store.View),
-		)
 	case http.MethodGet:
 		templ.Handler(Home()).ServeHTTP(w, r)
 	default:
@@ -141,6 +144,13 @@ func handleDatastarError(sse *datastar.ServerSentEventGenerator, status int, err
 		if err != nil {
 			slog.Error("Error", "status", status, "error-msg", err)
 		}
+	}
+}
+
+func (h *Handler) dict(sse *datastar.ServerSentEventGenerator, store *AIAPISignal) {
+	err := sse.PatchElementTempl(JishoLookup(store.Prompt), datastar.WithSelectorID("jisho_page"))
+	if err != nil {
+		sse.ConsoleError(err)
 	}
 }
 
