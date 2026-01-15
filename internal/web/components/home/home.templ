@@ -144,7 +144,7 @@ templ Home() {
 	{{
 		const searchDisabled = "$fetching || $model == '' || $endpoint == '' || $key==''"
 		const searchBusy = "$fetching ? 'true' : 'false'"
-		const searchButton = "@post('/')"
+		const searchButton = "@post('/', {openWhenHidden: true})"
 	}}
 	@components.Base() {
 		// Controls
