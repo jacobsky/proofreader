@@ -3,11 +3,13 @@ package home
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/a-h/templ"
 	"github.com/starfederation/datastar-go/datastar"
@@ -258,6 +260,32 @@ func (h *Handler) suggestion(sse *datastar.ServerSentEventGenerator, store *AIAP
 	_ = sse.MarshalAndPatchSignals(store.Status)
 }
 
+func (h *Handler) generateWithRetry(llm *openai.LLM, ctx context.Context, messages []llms.MessageContent) (string, error) {
+	const totalAttempts = 5
+	var response *llms.ContentResponse
+	var err error
+
+	for range totalAttempts {
+		response, err = llm.GenerateContent(ctx, messages)
+		if err != nil {
+			var rateLimit *llms.Error
+			if errors.As(err, &rateLimit) && rateLimit.Code == llms.ErrCodeRateLimit {
+				slog.Warn("Rate Limit Error attmpting to allow tokens/rate limit to recover",
+					"err", err,
+					"code", rateLimit.Code,
+					"cause", rateLimit.Cause,
+				)
+				time.Sleep(time.Second * 15)
+				continue
+			} else {
+				return "", err
+			}
+		}
+	}
+
+	return response.Choices[0].Content, nil
+}
+
 func (h *Handler) proofread(llm *openai.LLM, ctx context.Context, sentence string) (string, error) {
 	messages := []llms.MessageContent{
 		{
@@ -270,11 +298,7 @@ func (h *Handler) proofread(llm *openai.LLM, ctx context.Context, sentence strin
 		},
 	}
 
-	response, err := llm.GenerateContent(ctx, messages)
-	if err != nil {
-		return "", err
-	}
-	return response.Choices[0].Content, err
+	return h.generateWithRetry(llm, ctx, messages)
 }
 
 func (h *Handler) getJSON(llm *openai.LLM, ctx context.Context, sentence, llmResponse string) ResponseOutput {
@@ -291,7 +315,8 @@ func (h *Handler) getJSON(llm *openai.LLM, ctx context.Context, sentence, llmRes
 		},
 	}
 
-	retryResponse, retryErr := llm.GenerateContent(ctx, retryMessages)
+	retryResponse, retryErr := h.generateWithRetry(llm, ctx, retryMessages)
+
 	var output ResponseOutput
 	if retryErr != nil {
 		slog.Error("retry generation failed", "err", retryErr)
@@ -304,12 +329,11 @@ func (h *Handler) getJSON(llm *openai.LLM, ctx context.Context, sentence, llmRes
 			MisusedWords:      []string{},
 		}
 	} else {
-		llmRetryResponse := retryResponse.Choices[0].Content
-		slog.Debug("Retry output", "content", llmRetryResponse)
+		slog.Debug("Retry output", "content", retryResponse)
 
-		retryErr = json.Unmarshal([]byte(llmRetryResponse), &output)
+		retryErr = json.Unmarshal([]byte(retryResponse), &output)
 		if retryErr != nil {
-			slog.Error("retry JSON parsing also failed", "err", retryErr, "response", llmRetryResponse)
+			slog.Error("retry JSON parsing also failed", "err", retryErr, "response", retryResponse)
 			// Use fallback response
 			output = ResponseOutput{
 				OriginalSentence:  sentence,
@@ -335,14 +359,14 @@ func (h *Handler) analyze(llm *openai.LLM, ctx context.Context, text string) (st
 		},
 	}
 
-	response, err := llm.GenerateContent(ctx, messages)
+	response, err := h.generateWithRetry(llm, ctx, messages)
 	if err != nil {
 		slog.Error("generation error", "err", err)
 		return "", err
 	}
 
 	var buf strings.Builder
-	err = md.Convert([]byte(response.Choices[0].Content), &buf)
+	err = md.Convert([]byte(response), &buf)
 	if err != nil {
 		slog.Error("Markdown parsing error", "err", err)
 		return "", err
@@ -363,14 +387,14 @@ func (h *Handler) suggestPrompt(llm *openai.LLM, ctx context.Context, text strin
 		},
 	}
 
-	response, err := llm.GenerateContent(ctx, messages)
+	response, err := h.generateWithRetry(llm, ctx, messages)
 	if err != nil {
 		slog.Error("generation error", "err", err)
 		return "", err
 	}
 
 	var buf strings.Builder
-	err = md.Convert([]byte(response.Choices[0].Content), &buf)
+	err = md.Convert([]byte(response), &buf)
 	if err != nil {
 		slog.Error("Markdown parsing error", "err", err)
 		return "", err
