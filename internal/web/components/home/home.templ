@@ -14,13 +14,13 @@ templ ErrorMessage(code int, err error) {
 }
 
 templ JishoLink(word string) {
-	<a class="link" href={ fmt.Sprintf("https://jisho.org/search/%s", url.QueryEscape(word)) }>{ word }</a>
+	<a href={ fmt.Sprintf("https://jisho.org/search/%s", url.QueryEscape(word)) }>{ word }</a>
 }
 
 templ Notes(output templ.Component) {
 	<section id="analysis_notes">
 		if output != nil {
-			<h3>Notes about Submission</h3>
+			<h5>Notes about Submission</h5>
 			@output
 		}
 	</section>
@@ -29,7 +29,7 @@ templ Notes(output templ.Component) {
 templ FinalOutput(fullOutput string) {
 	<section id="final_output">
 		if fullOutput != "" {
-			<h3>Corrected Writing</h3>
+			<h5>Corrected Writing</h5>
 			<p>{ fullOutput }</p>
 		}
 	</section>
@@ -37,17 +37,17 @@ templ FinalOutput(fullOutput string) {
 
 templ OutputFragment(output ResponseOutput) {
 	<tr>
-		<td class="font-mono break-words">{ output.OriginalSentence }</td>
-		<td class="font-mono break-words">{ output.CorrectedSentence }</td>
-		<td class="break-words">
+		<td>{ output.OriginalSentence }</td>
+		<td>{ output.CorrectedSentence }</td>
+		<td>
 			if output.ErrorDetails == "" {
 				No errors
 			} else {
 				{ output.ErrorDetails }
 			}
 		</td>
-		<td class="break-words">
-			<ul>
+		<td>
+			<ul class="no-padding">
 				if len(output.MisusedWords) > 0 {
 					for _, word := range output.MisusedWords {
 						<li>
@@ -63,21 +63,23 @@ templ OutputFragment(output ResponseOutput) {
 }
 
 templ OutputContainer(responses []ResponseOutput, final_output string, notes templ.Component) {
-	<table id="outputcontainer" class="table table-zebra table-auto w-5xl">
-		<thead data-show="document.querySelector('#promptoutput').children.length > 0">
-			<tr>
-				<th>Original Sentence</th>
-				<th>Corrected Sentence</th>
-				<th>Errors</th>
-				<th>Misused Words</th>
-			</tr>
-		</thead>
-		<tbody id="promptoutput">
-			for _, r := range responses {
-				@OutputFragment(r)
-			}
-		</tbody>
-	</table>
+	<div class="table-scroll">
+		<table id="outputcontainer">
+			<thead data-show="document.querySelector('#promptoutput').children.length > 0">
+				<tr>
+					<th>Original Sentence</th>
+					<th>Corrected Sentence</th>
+					<th>Errors</th>
+					<th>Misused Words</th>
+				</tr>
+			</thead>
+			<tbody id="promptoutput">
+				for _, r := range responses {
+					@OutputFragment(r)
+				}
+			</tbody>
+		</table>
+	</div>
 	@FinalOutput(final_output)
 	@Notes(notes)
 }
@@ -87,20 +89,20 @@ templ BaseOutputContainer(responses []ResponseOutput) {
 }
 
 templ OutputSection() {
-	<article id="output_section" class="prose-xl max-w-5xl justify-self-center grid grid-columns-1">
+	<article id="output_section">
 		@BaseOutputContainer([]ResponseOutput{})
 	</article>
 }
 
 templ HistoryEntry(scenario, prompt string, output templ.Component) {
-	<details class="collapse collapse-arrow bg-base-100 border-base-300 border" name="history">
+	<details name="history">
 		{{
 			title := strings.Join([]string{scenario, prompt}, ": ")
 			max_len := int(math.Max(float64(len(title)), 20))
 			truncated_prompt := title[0:max_len]
 		}}
-		<summary class="collapse-title font-semibold">{ truncated_prompt }</summary>
-		<article class="collapse-content prose lg:prose-xl max-w-none">
+		<summary>{ truncated_prompt }</summary>
+		<article>
 			<header>{ prompt }</header>
 			<p>
 				@output
@@ -110,30 +112,29 @@ templ HistoryEntry(scenario, prompt string, output templ.Component) {
 }
 
 templ SearchField() {
-	<div role="w-full join join-horizontal">
-		<textarea class="textarea w-full md:w-4/5 join-item mx-4 font-mono text-lg leading-relaxed min-h-32 resize-y" data-bind:prompt placeholder="Enter Japanese text here..." spellcheck="false"></textarea>
-		// Indended to put any buttons in here
-		// Would prefer to pass a component, but this will work for now.
-		{ children... }
+	<div class="field label border large">
+		<textarea data-bind:prompt placeholder=" " spellcheck="false"></textarea>
+		<label>Enter Japanese text here...</label>
 	</div>
+	<div class="medium-space"></div>
+	{ children... }
 }
 
-templ JishoLookup(words string) {
+templ JishoLookup() {
 	<iframe
 		id="jisho_page"
 		loading="lazy"
-		class="w-full xl:w-5xl"
+		class="responsive"
 		height="500"
-		if (words != "") {
-			src={ fmt.Sprintf("https://jisho.org/search/%s", words) }
-		} else {
-			src="about:blank"
-		}
+		src="https://jisho.org/"
 	></iframe>
 }
 
-func shouldShowView(view string) string {
-	return fmt.Sprintf("$view == '%v' ? 'btn btn-outline btn-primary w-1/4' : 'btn btn-dash btn-primary w-1/4'", view)
+func activeTabView(view string) string {
+	return fmt.Sprintf("$view == '%v' ? 'active' : ''", view)
+}
+func activeTabPage(view string) string {
+	return fmt.Sprintf("$view == '%v' ? 'active' : 'page padding'", view)
 }
 
 func setView(view string) string {
@@ -147,105 +148,77 @@ templ Home() {
 		const searchButton = "@post('/', {openWhenHidden: true})"
 	}}
 	@components.Base() {
-		// Controls
-		<section class="grid grid-columns-1 grow mx-auto my-4" data-signals="{fetching: false, view: 'proofread'}">
-			<div class="flex join" role="group">
-				<button
-					data-attr:class={ shouldShowView("history") }
-					class="btn btn-dash w-1/4"
-					data-on:click={ setView("history") }
-				>History</button>
-				<button
-					data-attr:class={ shouldShowView("proofread") }
-					class="btn btn-dash w-1/4"
-					data-on:click={ setView("proofread") }
-				>Proofread</button>
-				<button
-					data-attr:class={ shouldShowView("suggestion") }
-					class="btn btn-dash w-1/4"
-					data-on:click={ setView("suggestion") }
-				>Suggestion</button>
-				<button
-					data-attr:class={ shouldShowView("dict") }
-					class="btn btn-dash w-1/4"
-					data-on:click={ setView("dict") }
-				>Dictionary</button>
+		<section data-signals="{fetching: false, view: 'proofread'}">
+			<div class="tabs">
+				<a class={ activeTabView("history") } data-on:click={ setView("history") }>History</a>
+				<a class={ activeTabView("proofread") } data-on:click={ setView("proofread") }>Proofread</a>
+				<a class={ activeTabView("suggestion") } data-on:click={ setView("suggestion") }>Suggestion</a>
+				<a class={ activeTabView("dict") } data-on:click={ setView("dict") }>Dictionary</a>
 			</div>
-			<div class="flex justify-self-center py-4">
-				<div class="border border-warning bg-base-100 text-base-content" data-show="$model == '' || $endpoint == '' || $key==''" style="display: none">
-					<h3 class="text-2xl bg-warning text-warning-content p-4">Please configure the app settings</h3>
-					<ul class="list text-xl">
-						<li class="list-row" data-show="$model == ''">
+			<div data-show="$model == '' || $endpoint == '' || $key==''" style="display: none">
+				<article class="border error">
+					<h6>Please configure the app settings</h6>
+					<ul>
+						<li data-show="$model == ''">
 							<p>Please set the model name</p>
 						</li>
-						<li class="list-row" data-show="$endpoint == ''">
+						<li data-show="$endpoint == ''">
 							<p>Please set the endpoint </p>
 						</li>
-						<li class="list-row" data-show="$key==''">
+						<li data-show="$key==''">
 							<p>Please set the api key</p>
 						</li>
 					</ul>
-				</div>
+				</article>
 			</div>
-			<div class="prose lg:prose-xl max-w-none" data-show="$view == 'proofread'">
-				<h3>Proof read your work </h3>
+			<div class="page padding" data-class:active="$view == 'proofread'">
+				<h5>Proof read your work </h5>
 				<p>
 					Provide some japanese text that you would like to have checked for grammar, word choice, etc. Please note
 					that this is imperfect.
 				</p>
 				@SearchField() {
 					<button
-						class="btn btn-xl join-item w-full md:w-3/20"
+						class="responsive padding large"
 						data-on:click={ searchButton }
 						data-indicator:fetching
 						data-attr:disabled={ searchDisabled }
 						data-attr:aria-busy={ searchBusy }
-					>Check</button>
+					>
+						<i>check</i>
+						<span>Check</span>
+					</button>
 				}
 			</div>
-			<div class="prose lg:prose-xl max-w-none" data-show="$view == 'suggestion'">
-				<h3>Suggest a Translation </h3>
+			<div class="page padding" data-class:active="$view == 'suggestion'">
+				<h5>Suggest a Translation </h5>
 				<p>
 					This tool is used to request a suggestion for a sentence. Best used as a starting point and not to translate
 					a full text.
 				</p>
 				@SearchField() {
 					<button
-						class="btn btn-xl join-item w-full md:w-3/20"
-						data-on:click={ searchButton }
-						data-indicator:fetching
-						data-attr:disabled={ searchDisabled }
-						data-attr:aria-busy={ searchBusy }
-					>Receive Suggestion</button>
-				}
-			</div>
-			<div class="prose lg:prose-xl max-w-none" data-show="$view == 'dict'">
-				<h3>Dictionary Lookup</h3>
-				<p>
-					Powered by <a href="https://www.jisho.org">jisho.org</a>
-				</p>
-				@SearchField() {
-					<button
-						class="btn btn-xl join-item w-full md:w-3/20"
+						class="responsive padding large medium-space"
 						data-on:click={ searchButton }
 						data-indicator:fetching
 						data-attr:disabled={ searchDisabled }
 						data-attr:aria-busy={ searchBusy }
 					>
-						Lookup
+						<i>lightbulb</i>
+						<span>Receive Suggestion</span>
 					</button>
 				}
 			</div>
-			<div class="grid grid-auto-flow max-w-5xl" data-show="$view != 'history' && $view != 'dict'">
+			<div class="page padding" data-class:active="$view != 'history' && $view != 'dict'">
 				@OutputSection()
 			</div>
-			<div class="max-w-5xl" data-show="$view == 'history'">
-				<h2 class="text-xl p-4">Prompt History</h2>
-				<p class="text-base-content text-lg">Please feel free to review your previously used prompts below</p>
-				<div class="grid grid-auto-flow" id="history"></div>
+			<div class="page padding" data-class:active="$view == 'history'">
+				<h5>Prompt History</h5>
+				<p>Please feel free to review your previously used prompts below</p>
+				<div id="history"></div>
 			</div>
-			<div class="grid grid-auto-flow max-w-5xl max-h-full md:max-h-screen" data-show="$view == 'dict'">
-				@JishoLookup("")
+			<div class="page padding" data-class:active="$view == 'dict'">
+				@JishoLookup()
 			</div>
 		</section>
 	}

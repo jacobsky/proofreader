@@ -150,7 +150,7 @@ func handleDatastarError(sse *datastar.ServerSentEventGenerator, status int, err
 }
 
 func (h *Handler) dict(sse *datastar.ServerSentEventGenerator, store *AIAPISignal) {
-	err := sse.PatchElementTempl(JishoLookup(store.Prompt), datastar.WithSelectorID("jisho_page"))
+	err := sse.PatchElementTempl(JishoLookup(), datastar.WithSelectorID("jisho_page"))
 	if err != nil {
 		sse.ConsoleError(err)
 	}
@@ -265,11 +265,13 @@ func (h *Handler) generateWithRetry(llm *openai.LLM, ctx context.Context, messag
 	var response *llms.ContentResponse
 	var err error
 
-	for range totalAttempts {
+	for i := range totalAttempts {
 		response, err = llm.GenerateContent(ctx, messages)
 		if err != nil {
 			var rateLimit *llms.Error
-			if errors.As(err, &rateLimit) && rateLimit.Code == llms.ErrCodeRateLimit {
+			if i >= totalAttempts-1 {
+				return "", err
+			} else if errors.As(err, &rateLimit) && rateLimit.Code == llms.ErrCodeRateLimit {
 				slog.Warn("Rate Limit Error attmpting to allow tokens/rate limit to recover",
 					"err", err,
 					"code", rateLimit.Code,
